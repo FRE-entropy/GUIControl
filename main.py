@@ -321,7 +321,7 @@ class GestureMouse:
     
     # 优化后的常量定义
     CLICK_DISTANCE_THRESHOLD = 0.05  # 降低点击阈值，提高灵敏度
-    SMOOTHING_WINDOW_SIZE = 5
+    SMOOTHING_WINDOW_SIZE = 8  # 增加平滑窗口大小，减少抖动
     MIN_MOVEMENT_THRESHOLD = 1  # 降低移动阈值，提高灵敏度
     CLICK_COOLDOWN = 3  # 减少冷却时间
     CLICK_MIN_DURATION = 2  # 减少最小持续时间
@@ -367,12 +367,13 @@ class GestureMouse:
             # 计算拇指和食指位置
             thumb_tip = current_hand_landmarks[HandLandmark.THUMB_TIP]
             index_finger_tip = current_hand_landmarks[HandLandmark.INDEX_FINGER_TIP]
+            middle_finger_tip = current_hand_landmarks[HandLandmark.MIDDLE_FINGER_TIP]
             
-            # 计算鼠标位置
-            mouse_x, mouse_y = self._calculate_mouse_position(thumb_tip, index_finger_tip)
+            # 计算鼠标位置（食指位置）
+            mouse_x, mouse_y = self._calculate_mouse_position(index_finger_tip)
             
             # 计算手指距离
-            self.current_distance = self._calculate_finger_distance(thumb_tip, index_finger_tip)
+            self.current_distance = self._calculate_finger_distance(thumb_tip, middle_finger_tip)
             
             # 更新鼠标位置
             self._update_mouse_position(mouse_x, mouse_y)
@@ -389,7 +390,7 @@ class GestureMouse:
         self.is_dragging = False
         self.bc.mouse_up_current_hardware()
 
-    def _calculate_mouse_position(self, thumb_tip, index_finger_tip):
+    def _calculate_mouse_position(self, index_finger_tip):
         """
         计算鼠标屏幕位置（优化版本）
         """
@@ -482,7 +483,6 @@ class GestureMouse:
                 self.click_cooldown -= 1
                 return
             
-            current_time = time.time()
             current_click_state = self.current_distance < self.CLICK_DISTANCE_THRESHOLD
             
             # 状态变化检测
@@ -501,8 +501,9 @@ class GestureMouse:
                 # 检查是否进入拖拽模式
                 if not self.is_dragging and self.click_duration >= self.DRAG_THRESHOLD_DURATION:
                     self.is_dragging = True
+                    self.bc.mouse_down_current_hardware()
                     print("\n进入拖拽模式")
-                
+
         except Exception as e:
             print(f"处理点击事件时发生错误: {e}")
     
@@ -512,22 +513,20 @@ class GestureMouse:
         self.is_dragging = False
         self.click_duration = 1
         self.click_start_time = time.time()
-        self.bc.mouse_down_current_hardware()
         print("\n点击开始")
     
     def _end_click(self):
         """结束点击"""
         if self.is_click:
-            # 确保点击持续时间足够长
-            if self.click_duration >= self.CLICK_MIN_DURATION:
+            if self.click_duration < self.DRAG_THRESHOLD_DURATION:
+                self.bc.mouse_click_current_hardware()
+                print(f"\n点击结束（持续时间: {self.click_duration}帧）")
+            else:
                 if self.is_dragging:
                     self.bc.mouse_up_current_hardware()
                     print(f"\n拖拽结束（持续时间: {self.click_duration}帧）")
-                    self.click_cooldown = self.CLICK_COOLDOWN  # 拖拽后设置冷却
-                else:
-                    self.bc.mouse_up_current_hardware()
-                    print(f"\n点击结束（持续时间: {self.click_duration}帧）")
-                    # 普通点击不设置冷却时间，提高响应性
+
+            self.click_cooldown = self.CLICK_COOLDOWN  # 拖拽后设置冷却
             
             self.is_click = False
             self.is_dragging = False
