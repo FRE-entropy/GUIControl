@@ -320,8 +320,7 @@ class GestureMouse:
     """
     
     # 优化后的常量定义
-    CLICK_DISTANCE_THRESHOLD = 0.3  # 降低点击阈值，提高灵敏度
-    CLICK_HYSTERESIS = 0.05  # 减少迟滞，提高响应速度
+    CLICK_DISTANCE_THRESHOLD = 0.05  # 降低点击阈值，提高灵敏度
     SMOOTHING_WINDOW_SIZE = 5
     MIN_MOVEMENT_THRESHOLD = 1  # 降低移动阈值，提高灵敏度
     CLICK_COOLDOWN = 3  # 减少冷却时间
