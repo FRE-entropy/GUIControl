@@ -1,7 +1,7 @@
 import time
 import traceback
 from utils.hgr_utils import HGRUtils, HandLandmark
-from utils.gui_utils import screen_size, BackgroundController
+from utils.gui_utils import BackgroundController
 
 
 class GestureControl:
@@ -51,7 +51,7 @@ class GestureControl:
         
         # 初始化功能模块
         self.function_list = [
-            GestureMouse()
+            GestureMouse(self.bc)
         ]
         
         print(f"手势控制系统初始化完成 - 数据目录: {self.data_dir}, 控制方法: {self.control_method}")
@@ -69,6 +69,7 @@ class GestureControl:
             self.hgr_utils = HGRUtils(self.data_dir)
             self.bc = BackgroundController()
             self.bc.set_control_method(self.control_method)
+            self.bc.boost_priority()
         except Exception as e:
             print(f"组件初始化失败: {e}")
             raise
@@ -156,7 +157,7 @@ class GestureControl:
 
             # 更新所有功能模块
             for function in self.function_list:
-                function.update(hand_landmarks_list, self.bc)
+                function.update(hand_landmarks_list)
             
             return True
             
@@ -230,22 +231,24 @@ class GestureMouse:
     CLICK_DISTANCE_THRESHOLD = 0.5 # 点击距离阈值
     SMOOTHING_WINDOW_SIZE = 5  # 平滑窗口大小
     MIN_MOVEMENT_THRESHOLD = 2  # 最小移动阈值（像素）
+    CLICK_COOLDOWN = 10  # 点击冷却时间（帧）
+    SCALE = 1.3
     
-    def __init__(self):
+    def __init__(self, bc: BackgroundController):
         """初始化手势鼠标控制"""
+        self.bc = bc
         self.is_click = False
         self.click_cooldown = 0
-        self.location_list = [[0, 0]] * self.SMOOTHING_WINDOW_SIZE
+        self.location_list = [list(self.bc.get_cursor_position())] * self.SMOOTHING_WINDOW_SIZE
         self.current_distance = 0.0
         self.last_position = (0, 0)
 
-    def update(self, hand_landmarks_list, bc: BackgroundController):
+    def update(self, hand_landmarks_list):
         """
         更新鼠标控制状态
         
         Args:
             hand_landmarks_list: 手部关键点列表
-            bc: 后台控制器实例
         """
         try:
             if len(hand_landmarks_list) == 0:
@@ -264,10 +267,10 @@ class GestureMouse:
             self.current_distance = self._calculate_finger_distance(thumb_tip, index_finger_tip)
             
             # 更新鼠标位置（带平滑和阈值检测）
-            self._update_mouse_position(mouse_x, mouse_y, bc)
+            self._update_mouse_position(mouse_x, mouse_y)
             
             # 处理点击事件
-            self._handle_click_event(bc)
+            self._handle_click_event()
             
             # 更新冷却时间
             if self.click_cooldown > 0:
@@ -287,8 +290,8 @@ class GestureMouse:
         Returns:
             tuple: 鼠标在屏幕上的坐标 (x, y)
         """
-        x = (1 - (index_finger_tip[0] + thumb_tip[0]) / 2) * screen_size[0]
-        y = (index_finger_tip[1] + thumb_tip[1]) / 2 * screen_size[1]
+        x = ((1 - (index_finger_tip[0] + thumb_tip[0]) / 2)  * self.SCALE - (self.SCALE - 1) / 2) *  self.bc.screen_size[0]
+        y = ((index_finger_tip[1] + thumb_tip[1]) / 2  * self.SCALE - (self.SCALE - 1) / 2) * self.bc.screen_size[1]
         return x, y
     
     def _calculate_finger_distance(self, thumb_tip, index_finger_tip):
@@ -307,14 +310,13 @@ class GestureMouse:
         distance = (dx**2 + dy**2)**0.5 * 10
         return distance
     
-    def _update_mouse_position(self, x, y, bc):
+    def _update_mouse_position(self, x, y):
         """
         更新鼠标位置（带平滑处理和移动阈值检测）
         
         Args:
             x (float): 鼠标X坐标
             y (float): 鼠标Y坐标
-            bc (BackgroundController): 后台控制器实例
         """
         try:
             # 检查移动距离是否超过阈值
@@ -327,7 +329,7 @@ class GestureMouse:
                 avg_x, avg_y = self._calculate_weighted_average()
                 
                 # 移动鼠标
-                bc.move_foreground(int(avg_x), int(avg_y), relative=False)
+                self.bc.move_foreground(int(avg_x), int(avg_y), relative=False)
                 
                 # 更新最后位置
                 self.last_position = (avg_x, avg_y)
@@ -374,12 +376,11 @@ class GestureMouse:
         
         return weighted_x / total_weight, weighted_y / total_weight
     
-    def _handle_click_event(self, bc: BackgroundController):
+    def _handle_click_event(self):
         """
         处理鼠标点击事件（带迟滞和冷却）
         
         Args:
-            bc (BackgroundController): 后台控制器实例
         """
         try:
             if self.click_cooldown > 0:
@@ -389,14 +390,14 @@ class GestureMouse:
                 if not self.is_click:
                     # 触发点击
                     self.is_click = True
-                    self.click_cooldown = 10  # 设置冷却时间
+                    self.click_cooldown = self.CLICK_COOLDOWN  # 设置冷却时间
                     print("\n点击事件触发")
                     # 这里可以添加实际的点击逻辑
-                    bc.mouse_down_current_hardware()
+                    self.bc.mouse_down_current_hardware()
             elif self.current_distance > self.CLICK_DISTANCE_THRESHOLD:
                 # 只有当距离超过阈值+迟滞时才重置点击状态
                 self.is_click = False
-                bc.mouse_up_current_hardware()
+                self.bc.mouse_up_current_hardware()
                 
         except Exception as e:
             print(f"处理点击事件时发生错误: {e}")

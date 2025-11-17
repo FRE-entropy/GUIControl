@@ -1,30 +1,4 @@
 from re import T
-from pyautogui import press, moveTo, size
-import keyboard
-from time import sleep
-
-
-scale = 1
-screen_size = size()
-screen_size = (screen_size.width * scale, screen_size.height * scale)
-
-# 向下滚动
-def scroll_down():
-    press("down")
-
-def move_mouse(x, y):
-    moveTo(x, y)
-
-def wait_key(key, timeout=-1):
-    start_time = time.time()
-    while True:
-        sleep(0.1)
-        if keyboard.is_pressed(key):
-            return True
-        if timeout != -1 and time.time() - start_time >= timeout:
-            return False
-
-
 import win32gui
 import win32con
 import win32api
@@ -57,6 +31,29 @@ class BackgroundController:
         self._window_list_cache = None
         self._cache_time = 0
         self._cache_ttl = 2  # 缓存有效期（秒）
+        self.screen_size = (win32api.GetSystemMetrics(0), win32api.GetSystemMetrics(1))
+
+    def boost_priority(self, pid=None):
+        """提高当前进程或目标进程的优先级"""
+        try:
+            if pid is None:
+                pid = win32process.GetCurrentProcessId()
+            
+            process_handle = ctypes.windll.kernel32.OpenProcess(
+                win32con.PROCESS_ALL_ACCESS, False, pid
+            )
+            
+            # 设置为高优先级（谨慎使用）
+            ctypes.windll.kernel32.SetPriorityClass(
+                process_handle, win32con.HIGH_PRIORITY_CLASS
+            )
+            
+            ctypes.windll.kernel32.CloseHandle(process_handle)
+            print(f"成功提高进程 {pid} 的优先级")
+            return True
+        except Exception as e:
+            print(f"提高优先级失败: {e}")
+            return False
     
     def set_control_method(self, method: str):
         """
