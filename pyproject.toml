@@ -1,11 +1,13 @@
 [project]
-name = "HandGestureRecognition"
+name = "GUIControl"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "keyboard>=0.13.5",
     "mediapipe>=0.10.21",
+    "pyautogui>=0.9.54",
 ]
 
 [[tool.uv.index]]

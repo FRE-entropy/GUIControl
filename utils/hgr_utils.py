@@ -1,11 +1,15 @@
 import cv2
 import mediapipe as mp
+from mediapipe.python.solutions.hands import HandLandmark
 import time
 import os
 import numpy as np
 
 
 class HGRUtils:
+    """
+    手势识别工具类
+    """
     def __init__(self, save_dir=""):
         # 初始化MediaPipe手势识别模型
         self.mp_hands = mp.solutions.hands
@@ -33,6 +37,8 @@ class HGRUtils:
         # 确保目录存在
         os.makedirs(self.save_dir, exist_ok=True)
 
+        self.hand_landmarks_list = self.read_all_hand_landmarks()
+
     def get_camera_frame(self):
         """获取摄像头画面"""
         success, image = self.cap.read()
@@ -41,7 +47,7 @@ class HGRUtils:
             return None
         return image
 
-    def get_result(self, image):
+    def get_result(self, image, array=True):
         """获取手势识别结果"""
         # 为了提高性能，可以选择将图像标记为不可写
         image.flags.writeable = False
@@ -52,50 +58,95 @@ class HGRUtils:
         # 恢复图像的可写状态
         image.flags.writeable = True
 
-        hand_landmarks = []
+        hand_landmarks_list = []
 
         if results.multi_hand_landmarks:
-            for hand_landmark in results.multi_hand_landmarks:
-                hand_landmarks.append(hand_landmark)
+            for hand_landmarks in results.multi_hand_landmarks:
+                if array:
+                    hand_landmarks_array = np.array([[landmark.x, landmark.y, landmark.z] for landmark in hand_landmarks.landmark])
+                    hand_landmarks_list.append(hand_landmarks_array)
+                else:
+                    hand_landmarks_list.append(hand_landmarks)
 
-        return hand_landmarks
+        return hand_landmarks_list
 
-    def get_hand_landmarks(self):
+    def get_all_hand_landmarks(self):
         image = self.get_camera_frame()
         results = self.get_result(image)
         return results
 
-    def add_save_hand_landmark(self, hand_landmark):
+    def add_save_hand_landmarks(self, hand_landmarks):
         """保存手部关键点"""
-        existing_landmarks = self.read_hand_landmarks()
-        existing_landmarks.append(hand_landmark)
-        self.save_hand_landmarks(existing_landmarks)
+        if self.hand_landmarks_list.size == 0:
+            self.hand_landmarks_list = np.array([hand_landmarks])
+        else:
+            self.hand_landmarks_list = np.append(self.hand_landmarks_list, [hand_landmarks], axis=0)
+        self.save_all_hand_landmarks(self.hand_landmarks_list)
 
-    def replace_save_hand_landmark(self, index, hand_landmark):
+    def replace_save_hand_landmarks(self, index, hand_landmarks):
         """替换手部关键点"""
-        if index < 0 or index >= len(self.read_hand_landmarks()):
+        if index < 0 or index >= len(self.read_all_hand_landmarks()):
             print("索引超出范围，无法替换手部关键点")
             return
-        existing_landmarks = self.read_hand_landmarks()
-        existing_landmarks[index] = hand_landmark
-        self.save_hand_landmarks(existing_landmarks)
+        existing_landmarks = self.read_all_hand_landmarks()
+        existing_landmarks[index] = hand_landmarks
+        self.save_all_hand_landmarks(existing_landmarks)
 
-    def save_hand_landmarks(self, hand_landmarks):
+    def save_all_hand_landmarks(self, hand_landmarks_list):
         """保存手部关键点"""
-        np.save(self.save_file, hand_landmarks)
+        np.save(self.save_file, hand_landmarks_list)
         print(f"手部关键点已保存到 {self.save_file}")
 
-    def read_hand_landmarks(self):
+    def read_all_hand_landmarks(self):
         """读取手部关键点"""
         try:
-            hand_landmarks = np.load(self.save_file, allow_pickle=True)
+            hand_landmarks_list = np.load(self.save_file, allow_pickle=True)
+            print(f"手部关键点已从 {self.save_file} 加载")
         except FileNotFoundError:
-            hand_landmarks = []
-        return hand_landmarks
+            hand_landmarks_list = np.array([])
+        return hand_landmarks_list
 
     def get_hand_landmark_distance(self, hand_landmark1, hand_landmark2):
-        """计算两点之间的距离"""
-        return ((hand_landmark1.x - hand_landmark2.x) ** 2 + (hand_landmark1.y - hand_landmark2.y) ** 2) ** 0.5
+        hand_landmark1 = self.to_relative(hand_landmark1)
+        hand_landmark2 = self.to_relative(hand_landmark2)
+
+        if hand_landmark1 is None or hand_landmark2 is None:
+            return 0.0
+            
+        # 计算欧几里得距离
+        distance = np.linalg.norm(hand_landmark1 - hand_landmark2)
+        
+        return distance
+
+    def to_relative(self, hand_landmarks):
+        """将手部关键点转换为相对坐标"""
+        # 添加错误处理和类型检查
+        if hand_landmarks is None or len(hand_landmarks) == 0:
+            print("错误：输入的手部关键点为空")
+            return hand_landmarks
+        
+        # 确保输入是numpy数组
+        if not isinstance(hand_landmarks, np.ndarray):
+            hand_landmarks = np.array(hand_landmarks)
+        
+        relative_landmarks = [[0, 0, 0]]
+        
+        # 计算其他点相对于手腕点的坐标
+        for i in range(1, len(hand_landmarks)):
+            relative_landmarks.append(hand_landmarks[i] - hand_landmarks[0])
+        
+        return np.array(relative_landmarks)
+
+    def show_hand_landmarks(self, image, hand_landmarks: np.ndarray):
+        """显示手部关键点"""
+        # 绘制手部关键点和连接线
+        self.mp_drawing.draw_landmarks(
+            image,
+            hand_landmarks,
+            self.mp_hands.HAND_CONNECTIONS,
+            self.mp_drawing_styles.get_default_hand_landmarks_style(),
+            self.mp_drawing_styles.get_default_hand_connections_style(),
+        )
 
     #-------------------------------------------------------------------------------------------------------------
     def recognize_gestures(self):
@@ -107,22 +158,13 @@ class HGRUtils:
             if image is None:
                 break
 
-            results = self.get_result(image)
+            results = self.get_result(image, array=False)
 
             # 如果检测到手部
             if results:
                 for hand_landmarks in results:
                     # 绘制手部关键点和连接线
-                    self.mp_drawing.draw_landmarks(
-                        image,
-                        hand_landmarks,
-                        self.mp_hands.HAND_CONNECTIONS,
-                        self.mp_drawing_styles.get_default_hand_landmarks_style(),
-                        self.mp_drawing_styles.get_default_hand_connections_style(),
-                    )
-
-                    # 获取并显示手部关键点坐标
-                    self._process_hand_landmarks(image, hand_landmarks)
+                    self.show_hand_landmarks(image, hand_landmarks)
 
             # 计算并显示FPS
             self._calculate_fps(image)
@@ -133,51 +175,6 @@ class HGRUtils:
             # 按ESC键退出
             if cv2.waitKey(5) & 0xFF == 27:
                 break
-
-    def _process_hand_landmarks(self, image, hand_landmarks):
-        """处理手部关键点，这里可以添加自定义手势识别逻辑"""
-        h, w, c = image.shape
-
-        # 获取食指指尖坐标
-        index_finger_tip = hand_landmarks.landmark[
-            self.mp_hands.HandLandmark.INDEX_FINGER_TIP
-        ]
-        x, y = int(index_finger_tip.x * w), int(index_finger_tip.y * h)
-
-        # 在食指指尖显示坐标
-        cv2.putText(
-            image,
-            f"({x}, {y})",
-            (x + 10, y - 10),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (0, 255, 0),
-            2,
-        )
-
-        # 这里可以添加手势识别逻辑，例如检测手指的屈伸状态
-        # 简单示例：检测食指是否伸直（可以扩展为更复杂的手势识别）
-        index_finger_mcp = hand_landmarks.landmark[
-            self.mp_hands.HandLandmark.INDEX_FINGER_MCP
-        ]
-        index_finger_pip = hand_landmarks.landmark[
-            self.mp_hands.HandLandmark.INDEX_FINGER_PIP
-        ]
-        index_finger_dip = hand_landmarks.landmark[
-            self.mp_hands.HandLandmark.INDEX_FINGER_DIP
-        ]
-
-        # 简单判断食指是否伸直（通过比较各关节的y坐标）
-        if (
-            index_finger_mcp.y
-            > index_finger_pip.y
-            > index_finger_dip.y
-            > index_finger_tip.y
-        ):
-            # 使用OpenCV的putText绘制中文
-            cv2.putText(
-                image, "食指伸直", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2
-            )
 
     def _calculate_fps(self, image):
         """计算并显示FPS"""
@@ -204,11 +201,5 @@ class HGRUtils:
 
 
 if __name__ == "__main__":
-    try:
-        hand_gesture = HGRUtils()
-        hand_gesture.recognize_gestures()
-    except Exception as e:
-        print(f"程序运行出错: {e}")
-    finally:
-        # 确保资源被释放
-        cv2.destroyAllWindows()
+    hand_gesture = HGRUtils("../data")
+    hand_gesture.recognize_gestures()
