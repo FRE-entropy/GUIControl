@@ -4,6 +4,7 @@ from mediapipe.python.solutions.hands import HandLandmark
 import time
 import os
 import numpy as np
+from collections import deque
 
 
 class HGRUtils:
@@ -24,8 +25,12 @@ class HGRUtils:
         self.mp_drawing = mp.solutions.drawing_utils
         self.mp_drawing_styles = mp.solutions.drawing_styles
 
-        # 打开摄像头
+        # 打开摄像头并优化设置
         self.cap = cv2.VideoCapture(0)
+        # 设置较低的摄像头分辨率以提高性能
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        self.cap.set(cv2.CAP_PROP_FPS, 30)
 
         # 用于计算FPS
         self.p_time = 0
@@ -38,6 +43,12 @@ class HGRUtils:
         os.makedirs(self.save_dir, exist_ok=True)
 
         self.hand_landmarks_list = self.read_all_hand_landmarks()
+        
+        # 性能优化：预分配内存和缓存
+        self._frame_cache = None
+        self._last_results = None
+        self._frame_counter = 0
+        self._skip_frames = 0  # 跳帧计数器，用于降低处理频率
 
     def get_camera_frame(self):
         """获取摄像头画面"""
@@ -48,7 +59,10 @@ class HGRUtils:
         return image
 
     def get_result(self, image, array=True):
-        """获取手势识别结果"""
+        """获取手势识别结果（优化版本）"""
+        if image is None:
+            return []
+            
         # 为了提高性能，可以选择将图像标记为不可写
         image.flags.writeable = False
         # 将图像从BGR格式转换为RGB格式
@@ -63,16 +77,29 @@ class HGRUtils:
         if results.multi_hand_landmarks:
             for hand_landmarks in results.multi_hand_landmarks:
                 if array:
-                    hand_landmarks_array = np.array([[landmark.x, landmark.y, landmark.z] for landmark in hand_landmarks.landmark])
-                    hand_landmarks_list.append(hand_landmarks_array)
+                    # 预分配数组，避免重复内存分配
+                    landmarks_array = np.empty((21, 3), dtype=np.float32)
+                    for i, landmark in enumerate(hand_landmarks.landmark):
+                        landmarks_array[i] = [landmark.x, landmark.y, landmark.z]
+                    hand_landmarks_list.append(landmarks_array)
                 else:
                     hand_landmarks_list.append(hand_landmarks)
 
         return hand_landmarks_list
 
     def get_all_hand_landmarks(self):
+        """获取所有手部关键点（优化版本）"""
+        # 跳帧处理：每2帧处理一次，提高性能
+        self._frame_counter += 1
+        if self._frame_counter % 2 != 0 and self._last_results is not None:
+            return self._last_results
+        
         image = self.get_camera_frame()
+        if image is None:
+            return []
+            
         results = self.get_result(image)
+        self._last_results = results  # 缓存结果
         return results
 
     def add_save_hand_landmarks(self, hand_landmarks):

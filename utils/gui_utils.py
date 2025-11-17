@@ -34,7 +34,7 @@ class BackgroundController:
         self.screen_size = (win32api.GetSystemMetrics(0), win32api.GetSystemMetrics(1))
 
     def boost_priority(self, pid=None):
-        """提高当前进程或目标进程的优先级"""
+        """提高当前进程或目标进程的优先级（增强版）"""
         try:
             if pid is None:
                 pid = win32process.GetCurrentProcessId()
@@ -48,11 +48,43 @@ class BackgroundController:
                 process_handle, win32con.HIGH_PRIORITY_CLASS
             )
             
+            # 设置线程优先级为最高
+            # 使用正确的线程访问权限常量
+            THREAD_ALL_ACCESS = 0x1F03FF  # 标准线程所有访问权限
+            thread_handle = ctypes.windll.kernel32.OpenThread(
+                THREAD_ALL_ACCESS, False, win32api.GetCurrentThreadId()
+            )
+            ctypes.windll.kernel32.SetThreadPriority(
+                thread_handle, win32con.THREAD_PRIORITY_HIGHEST
+            )
+            
+            ctypes.windll.kernel32.CloseHandle(thread_handle)
             ctypes.windll.kernel32.CloseHandle(process_handle)
-            print(f"成功提高进程 {pid} 的优先级")
+            
+            print(f"成功提高进程 {pid} 的优先级（进程: HIGH_PRIORITY_CLASS, 线程: THREAD_PRIORITY_HIGHEST）")
             return True
         except Exception as e:
             print(f"提高优先级失败: {e}")
+            return False
+    
+    def optimize_for_background(self):
+        """优化后台运行性能"""
+        try:
+            # 设置进程为后台模式
+            process_handle = ctypes.windll.kernel32.OpenProcess(
+                win32con.PROCESS_ALL_ACCESS, False, win32process.GetCurrentProcessId()
+            )
+            
+            # 使用标准的高优先级类，而不是不存在的后台模式常量
+            ctypes.windll.kernel32.SetPriorityClass(
+                process_handle, win32con.HIGH_PRIORITY_CLASS
+            )
+            
+            ctypes.windll.kernel32.CloseHandle(process_handle)
+            print("已优化为后台运行模式（使用高优先级）")
+            return True
+        except Exception as e:
+            print(f"后台优化失败: {e}")
             return False
     
     def set_control_method(self, method: str):
