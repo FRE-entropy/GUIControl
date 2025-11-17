@@ -222,15 +222,13 @@ class GestureMouse:
     
     Attributes:
         CLICK_DISTANCE_THRESHOLD (float): 点击距离阈值
-        CLICK_HYSTERESIS (float): 点击迟滞值，防止抖动
         SMOOTHING_WINDOW_SIZE (int): 平滑窗口大小
         MIN_MOVEMENT_THRESHOLD (int): 最小移动阈值（像素）
     """
     
     # 常量定义
-    CLICK_DISTANCE_THRESHOLD = 1.0
-    CLICK_HYSTERESIS = 0.2  # 点击迟滞，防止抖动
-    SMOOTHING_WINDOW_SIZE = 5
+    CLICK_DISTANCE_THRESHOLD = 0.5 # 点击距离阈值
+    SMOOTHING_WINDOW_SIZE = 5  # 平滑窗口大小
     MIN_MOVEMENT_THRESHOLD = 2  # 最小移动阈值（像素）
     
     def __init__(self):
@@ -320,7 +318,7 @@ class GestureMouse:
         """
         try:
             # 检查移动距离是否超过阈值
-            if self._should_move_mouse(x, y):
+            if self._should_move_mouse(x, y) and self.click_cooldown <= 0:
                 # 添加新位置到列表
                 self.location_list.append([x, y])
                 self.location_list.pop(0)
@@ -380,8 +378,6 @@ class GestureMouse:
         """
         处理鼠标点击事件（带迟滞和冷却）
         
-        使用迟滞机制防止点击抖动，冷却机制防止连续误点击。
-        
         Args:
             bc (BackgroundController): 后台控制器实例
         """
@@ -397,7 +393,7 @@ class GestureMouse:
                     print("\n点击事件触发")
                     # 这里可以添加实际的点击逻辑
                     bc.mouse_down_current_hardware()
-            elif self.current_distance > self.CLICK_DISTANCE_THRESHOLD + self.CLICK_HYSTERESIS:
+            elif self.current_distance > self.CLICK_DISTANCE_THRESHOLD:
                 # 只有当距离超过阈值+迟滞时才重置点击状态
                 self.is_click = False
                 bc.mouse_up_current_hardware()
