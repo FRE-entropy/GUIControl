@@ -7,7 +7,10 @@ requires-python = ">=3.12"
 dependencies = [
     "keyboard>=0.13.5",
     "mediapipe>=0.10.21",
+    "opencv-python>=4.11.0.86",
+    "psutil>=7.1.3",
     "pyautogui>=0.9.54",
+    "pywin32>=311",
 ]
 
 [[tool.uv.index]]
