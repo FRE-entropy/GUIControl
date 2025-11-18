@@ -16,9 +16,9 @@ class HGRUtils:
         self.mp_hands = mp.solutions.hands
         self.hands = self.mp_hands.Hands(
             static_image_mode=False,  # 连续视频模式
-            max_num_hands=2,  # 最多检测2只手
-            min_detection_confidence=0.7,  # 检测置信度阈值
-            min_tracking_confidence=0.5,  # 跟踪置信度阈值
+            max_num_hands=1,  # 最多检测1只手，提高性能
+            min_detection_confidence=0.7,  # 降低检测置信度阈值，提高响应性
+            min_tracking_confidence=0.5,  # 降低跟踪置信度阈值，提高性能
         )
 
         # 用于绘制手部关键点的工具
@@ -89,22 +89,17 @@ class HGRUtils:
 
     def get_all_hand_landmarks(self):
         """获取所有手部关键点（优化版本）"""
-        # 跳帧处理：每2帧处理一次，提高性能
-        self._frame_counter += 1
-        if self._frame_counter % 2 != 0 and self._last_results is not None:
-            return self._last_results
         
         image = self.get_camera_frame()
         if image is None:
-            return []
+            return [], None
             
         results = self.get_result(image)
-        self._last_results = results  # 缓存结果
-        return results
+        return results, image
 
     def add_save_hand_landmarks(self, hand_landmarks):
         """保存手部关键点"""
-        if self.hand_landmarks_list.size == 0:
+        if len(self.hand_landmarks_list) == 0:
             self.hand_landmarks_list = np.array([hand_landmarks])
         else:
             self.hand_landmarks_list = np.append(self.hand_landmarks_list, [hand_landmarks], axis=0)
@@ -175,7 +170,6 @@ class HGRUtils:
             self.mp_drawing_styles.get_default_hand_connections_style(),
         )
 
-    #-------------------------------------------------------------------------------------------------------------
     def recognize_gestures(self):
         """实时手势识别主循环"""
         print("手势识别已启动！按ESC键退出...")
@@ -185,23 +179,27 @@ class HGRUtils:
             if image is None:
                 break
 
-            results = self.get_result(image, array=False)
-
             # 如果检测到手部
-            if results:
-                for hand_landmarks in results:
-                    # 绘制手部关键点和连接线
-                    self.show_hand_landmarks(image, hand_landmarks)
+            self.display_results(image)
 
             # 计算并显示FPS
             self._calculate_fps(image)
 
-            # 显示结果图像
-            cv2.imshow("MediaPipe手势识别", image)
-
             # 按ESC键退出
             if cv2.waitKey(5) & 0xFF == 27:
                 break
+    
+    def display_results(self, image):
+        """显示图像"""
+        results = self.get_result(image, array=False)
+        if results is not None and len(results) > 0 and image is not None:
+            for hand_landmarks in results:
+                # 绘制手部关键点和连接线
+                self.show_hand_landmarks(image, hand_landmarks)
+            # 显示结果图像
+        cv2.imshow("MediaPipe手势识别", image)
+        # 使用非阻塞的waitKey，避免程序阻塞
+        cv2.waitKey(1)
 
     def _calculate_fps(self, image):
         """计算并显示FPS"""

@@ -41,12 +41,6 @@ class GestureControl:
         self.frame_count = 0
         self.start_time = time.time()
         self.frame_times = deque(maxlen=60)
-        self.performance_stats = {
-            'fps': 0,
-            'avg_frame_time': 0,
-            'min_frame_time': float('inf'),
-            'max_frame_time': 0
-        }
         
         # 初始化组件
         self._initialize_components()
@@ -79,7 +73,7 @@ class GestureControl:
         """测试手势识别功能"""
         try:
             hand_landmarks = self.hgr_utils.get_hand_landmarks()
-            if not hand_landmarks:
+            if hand_landmarks is None or len(hand_landmarks) == 0:
                 print("未检测到手部")
                 return
             print(hand_landmarks)
@@ -136,8 +130,9 @@ class GestureControl:
     def _process_gesture_data(self):
         """处理手势数据并更新功能模块"""
         try:
-            # 获取手势数据
-            hand_landmarks_list = self.hgr_utils.get_all_hand_landmarks()
+            # 获取手势数据（添加超时保护）
+            hand_landmarks_list, image = self.hgr_utils.get_all_hand_landmarks()
+            # self.hgr_utils.display_results(image)
             if len(hand_landmarks_list) == 0:
                 if not self.is_paused:
                     for function in self.function_list:
@@ -152,9 +147,15 @@ class GestureControl:
                 function.update(hand_landmarks_list)
             
             return True
-            
+                
         except Exception as e:
             print(f"处理手势数据时发生错误: {e}")
+            # 错误计数增加
+            self.error_count += 1
+            # 如果错误次数过多，停止运行
+            if self.error_count >= self.MAX_ERROR_COUNT:
+                print(f"错误次数过多({self.error_count}次)，停止运行")
+                self.is_running = False
             return False
     
     def _control_frame_rate(self, start_time):
@@ -170,6 +171,8 @@ class GestureControl:
             
             if sleep_time > 0:
                 time.sleep(sleep_time)
+
+            print(f"当前帧率: {1.0 / (time.time() - start_time):.2f}", end="\r")
                         
         except Exception as e:
             print(f"帧率控制时发生错误: {e}")
@@ -228,13 +231,13 @@ class GestureMouse:
         self.is_dragging = False
         self.click_duration = 0
         self.start_move_tip = None
+        self.start_move_pos = None
         
         # 位置平滑
         initial_pos = self.bc.get_cursor_position()
         self.location_list = np.tile([initial_pos], (self.SMOOTHING_WINDOW_SIZE, 1))
         self.thumb_middle_finger_distance = 0.0
         self.thumb_index_finger_distance = 0.0
-        self.last_position = initial_pos
         
         # 性能优化
         self._weights = np.arange(1, self.SMOOTHING_WINDOW_SIZE + 1, dtype=np.float32)
@@ -247,6 +250,9 @@ class GestureMouse:
         # 点击状态跟踪
         self.click_start_time = 0
         self.last_click_state = False
+        
+        # 帧计数器，用于控制移动频率
+        self._frame_counter = 0
 
     def update(self, hand_landmarks_list):
         """
@@ -264,15 +270,17 @@ class GestureMouse:
             middle_finger_tip = current_hand_landmarks[HandLandmark.MIDDLE_FINGER_TIP]
             
             # 计算鼠标位置（食指位置）
-            mouse_x, mouse_y = self._calculate_mouse_position(index_finger_tip)
+            # mouse_x, mouse_y = self._calculate_mouse_position(index_finger_tip)
             
             # 计算手指距离
             self.thumb_middle_finger_distance = self._calculate_finger_distance(thumb_tip, middle_finger_tip)
             self.thumb_index_finger_distance = self._calculate_finger_distance(thumb_tip, index_finger_tip)
             
+            # 更新帧计数器
+            self._frame_counter += 1
+            
             # 更新鼠标位置
-            # self._update_mouse_position(mouse_x, mouse_y)
-            self._update_mouse_position_relative(index_finger_tip)
+            self._update_mouse_position(index_finger_tip)
             
             # 处理点击事件
             self._handle_click_event()
@@ -317,64 +325,51 @@ class GestureMouse:
         
         return distance
 
-    def _update_mouse_position_relative(self, tip):
+    def _update_mouse_position(self, tip):
         """
-        更新鼠标位置（相对移动）
+        更新鼠标位置（相对移动）- 优化版本
         """
         try:
             if self.thumb_middle_finger_distance < self.CLICK_DISTANCE_THRESHOLD:
                 if self.start_move_tip is None:
+                    print("thumb_middle_finger_distance: ", self.thumb_middle_finger_distance)
                     self.start_move_tip = tip
+                    self.start_move_pos = self.bc.get_cursor_position()
                     return
                 
-                mouse_x = self.last_position[0] + (tip[0] - self.start_move_tip[0]) * -1000
-                mouse_y = self.last_position[1] + (tip[1] - self.start_move_tip[1]) * 1000
+                # 计算移动距离，添加移动阈值
+                delta_x = (tip[0] - self.start_move_tip[0]) * -1000
+                delta_y = (tip[1] - self.start_move_tip[1]) * 1000
+                
+                # 添加移动阈值，减少微小移动
+                if abs(delta_x) < 2 and abs(delta_y) < 2:
+                    return
+                
+                mouse_x = self.start_move_pos[0] + delta_x
+                mouse_y = self.start_move_pos[1] + delta_y
 
-                self.bc.move_foreground(int(mouse_x), int(mouse_y), relative=True)
+                # 更新位置列表
+                self.location_list = np.roll(self.location_list, -1, axis=0)
+                self.location_list[-1] = [mouse_x, mouse_y]
+
+                avg_x, avg_y = self._calculate_weighted_average()
+
+                # 添加移动频率控制，每2帧移动一次
+                if self._frame_counter % 2 == 0:
+                    self.bc.move_foreground(int(avg_x), int(avg_y), relative=True)
 
             else:
                 self.start_move_tip = None
-                # 更新最后位置
-                self.last_position = self.bc.get_cursor_position()
         
         except Exception as e:
             print(f"更新鼠标位置（相对移动）时发生错误: {e}")
-    
-    def _update_mouse_position(self, x, y):
-        """
-        更新鼠标位置
-        """
-        try:
-            # 检查移动距离是否超过阈值
-            can_move = self._should_move_mouse(x, y)
-            
-            if can_move:
-                # 更新位置列表
-                self.location_list = np.roll(self.location_list, -1, axis=0)
-                self.location_list[-1] = [x, y]
-                
-                # 计算平滑位置
-                avg_x, avg_y = self._calculate_weighted_average()
-                
-                # 移动鼠标（在拖拽模式下也允许移动）
-                if not self.is_click or self.is_dragging:
-                    self.bc.move_foreground(int(avg_x), int(avg_y), relative=True)
-                
-                # 更新最后位置
-                self.last_position = (avg_x, avg_y)
-            
-            # 显示状态信息
-            self._display_status()
-            
-        except Exception as e:
-            print(f"更新鼠标位置时发生错误: {e}")
-    
+
     def _should_move_mouse(self, x, y):
         """
         检查是否需要移动鼠标
         """
-        dx = abs(x - self.last_position[0])
-        dy = abs(y - self.last_position[1])
+        dx = abs(x - self.start_move_pos[0])
+        dy = abs(y - self.start_move_pos[1])
         return (dx > self.MIN_MOVEMENT_THRESHOLD or dy > self.MIN_MOVEMENT_THRESHOLD) and self.thumb_middle_finger_distance < self.CLICK_DISTANCE_THRESHOLD
     
     def _calculate_weighted_average(self):
