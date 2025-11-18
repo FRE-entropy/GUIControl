@@ -2,71 +2,8 @@ import time
 import traceback
 import numpy as np
 from collections import deque
-import psutil
 from utils.hgr_utils import HGRUtils, HandLandmark
 from utils.gui_utils import BackgroundController
-
-
-class PerformanceMonitor:
-    """
-    性能监控类
-    
-    实时监控系统性能指标，包括CPU使用率、内存使用、帧率等。
-    """
-    
-    def __init__(self):
-        self.process = psutil.Process()
-        self.start_time = time.time()
-        self.frame_count = 0
-        self.cpu_usage = deque(maxlen=60)
-        self.memory_usage = deque(maxlen=60)
-        self.fps_history = deque(maxlen=60)
-        
-    def update(self):
-        """更新性能指标"""
-        try:
-            # CPU使用率
-            cpu_percent = self.process.cpu_percent()
-            self.cpu_usage.append(cpu_percent)
-            
-            # 内存使用
-            memory_info = self.process.memory_info()
-            memory_mb = memory_info.rss / 1024 / 1024  # 转换为MB
-            self.memory_usage.append(memory_mb)
-            
-            # 帧率计算
-            self.frame_count += 1
-            elapsed_time = time.time() - self.start_time
-            current_fps = self.frame_count / elapsed_time
-            self.fps_history.append(current_fps)
-            
-        except Exception as e:
-            print(f"性能监控更新失败: {e}")
-    
-    def get_stats(self):
-        """获取性能统计"""
-        try:
-            avg_cpu = np.mean(self.cpu_usage) if self.cpu_usage else 0
-            avg_memory = np.mean(self.memory_usage) if self.memory_usage else 0
-            avg_fps = np.mean(self.fps_history) if self.fps_history else 0
-            
-            return {
-                'cpu_usage': avg_cpu,
-                'memory_usage_mb': avg_memory,
-                'fps': avg_fps,
-                'total_frames': self.frame_count,
-                'uptime_seconds': time.time() - self.start_time
-            }
-        except Exception as e:
-            print(f"获取性能统计失败: {e}")
-            return {}
-    
-    def display_stats(self):
-        """显示性能统计信息"""
-        stats = self.get_stats()
-        if stats:
-            print(f"CPU: {stats['cpu_usage']:.1f}% | 内存: {stats['memory_usage_mb']:.1f}MB | FPS: {stats['fps']:.1f}", end="\r")
-
 
 class GestureControl:
     """
@@ -110,9 +47,6 @@ class GestureControl:
             'min_frame_time': float('inf'),
             'max_frame_time': 0
         }
-        
-        # 集成性能监控器
-        self.performance_monitor = PerformanceMonitor()
         
         # 初始化组件
         self._initialize_components()
@@ -184,9 +118,6 @@ class GestureControl:
                     self._control_frame_rate(frame_start_time)
                     continue
                 
-                # 更新性能统计
-                self._update_performance_stats(frame_start_time)
-                
                 # 控制帧率
                 self._control_frame_rate(frame_start_time)
                 
@@ -211,9 +142,10 @@ class GestureControl:
                 if not self.is_paused:
                     for function in self.function_list:
                         function.pause()
+                        self.is_paused = True
                 return False
-            
-            self.is_paused = False
+            else:
+                self.is_paused = False
 
             # 更新所有功能模块
             for function in self.function_list:
@@ -241,45 +173,7 @@ class GestureControl:
                         
         except Exception as e:
             print(f"帧率控制时发生错误: {e}")
-    
-    def _update_performance_stats(self, frame_start_time):
-        """
-        更新性能统计信息
-        
-        Args:
-            frame_start_time (float): 当前帧开始的时间戳
-        """
-        try:
-            frame_time = time.time() - frame_start_time
-            self.frame_times.append(frame_time)
-            self.frame_count += 1
-            
-            # 更新性能监控器
-            self.performance_monitor.update()
-            
-            # 每10帧更新一次性能统计
-            if self.frame_count % 10 == 0:
-                total_time = time.time() - self.start_time
-                self.performance_stats['fps'] = self.frame_count / total_time
-                self.performance_stats['avg_frame_time'] = np.mean(self.frame_times) * 1000
-                self.performance_stats['min_frame_time'] = min(self.frame_times) * 1000
-                self.performance_stats['max_frame_time'] = max(self.frame_times) * 1000
-                
-                # 显示性能信息
-                self._display_performance_info()
-        except Exception as e:
-            print(f"更新性能统计时发生错误: {e}")
-    
-    def _display_performance_info(self):
-        """显示性能信息"""
-        stats = self.performance_stats
-        monitor_stats = self.performance_monitor.get_stats()
-        
-        if monitor_stats:
-            print(f"FPS: {stats['fps']:.1f} | 帧时间: {stats['avg_frame_time']:.1f}ms | CPU: {monitor_stats['cpu_usage']:.1f}% | 内存: {monitor_stats['memory_usage_mb']:.1f}MB", end="\r")
-        else:
-            print(f"FPS: {stats['fps']:.1f} | 帧时间: {stats['avg_frame_time']:.1f}ms (min: {stats['min_frame_time']:.1f}ms, max: {stats['max_frame_time']:.1f}ms)", end="\r")
-    
+
     def _handle_error(self, error):
         """
         处理错误
@@ -323,7 +217,6 @@ class GestureMouse:
     CLICK_DISTANCE_THRESHOLD = 0.05  # 降低点击阈值，提高灵敏度
     SMOOTHING_WINDOW_SIZE = 8  # 增加平滑窗口大小，减少抖动
     MIN_MOVEMENT_THRESHOLD = 1  # 降低移动阈值，提高灵敏度
-    CLICK_COOLDOWN = 3  # 减少冷却时间
     CLICK_MIN_DURATION = 2  # 减少最小持续时间
     DRAG_THRESHOLD_DURATION = 10  # 减少拖拽阈值
     SCALE = 1.3
@@ -333,13 +226,14 @@ class GestureMouse:
         self.bc = bc
         self.is_click = False
         self.is_dragging = False
-        self.click_cooldown = 0
         self.click_duration = 0
+        self.start_move_tip = None
         
         # 位置平滑
         initial_pos = self.bc.get_cursor_position()
         self.location_list = np.tile([initial_pos], (self.SMOOTHING_WINDOW_SIZE, 1))
-        self.current_distance = 0.0
+        self.thumb_middle_finger_distance = 0.0
+        self.thumb_index_finger_distance = 0.0
         self.last_position = initial_pos
         
         # 性能优化
@@ -373,10 +267,12 @@ class GestureMouse:
             mouse_x, mouse_y = self._calculate_mouse_position(index_finger_tip)
             
             # 计算手指距离
-            self.current_distance = self._calculate_finger_distance(thumb_tip, middle_finger_tip)
+            self.thumb_middle_finger_distance = self._calculate_finger_distance(thumb_tip, middle_finger_tip)
+            self.thumb_index_finger_distance = self._calculate_finger_distance(thumb_tip, index_finger_tip)
             
             # 更新鼠标位置
-            self._update_mouse_position(mouse_x, mouse_y)
+            # self._update_mouse_position(mouse_x, mouse_y)
+            self._update_mouse_position_relative(index_finger_tip)
             
             # 处理点击事件
             self._handle_click_event()
@@ -390,13 +286,12 @@ class GestureMouse:
         self.is_dragging = False
         self.bc.mouse_up_current_hardware()
 
-    def _calculate_mouse_position(self, index_finger_tip):
+    def _calculate_mouse_position(self, tip):
         """
         计算鼠标屏幕位置（优化版本）
         """
-        # 使用食指指尖作为主要控制点，更自然
-        x = (1 - index_finger_tip[0]) * self.bc.screen_size[0]
-        y = index_finger_tip[1] * self.bc.screen_size[1]
+        x = (1 - tip[0]) * self.bc.screen_size[0]
+        y = tip[1] * self.bc.screen_size[1]
         
         # 应用缩放
         center_x = self.bc.screen_size[0] / 2
@@ -411,20 +306,43 @@ class GestureMouse:
         
         return x, y
     
-    def _calculate_finger_distance(self, thumb_tip, index_finger_tip):
+    def _calculate_finger_distance(self, tip1, tip2):
         """
-        计算拇指和食指之间的距离（优化版本）
+        计算两指之间的距离
         """
-        dx = index_finger_tip[0] - thumb_tip[0]
-        dy = index_finger_tip[1] - thumb_tip[1]
+        dx = tip1[0] - tip2[0]
+        dy = tip1[1] - tip2[1]
         # 直接使用欧几里得距离，不缩放
         distance = (dx**2 + dy**2)**0.5
         
         return distance
+
+    def _update_mouse_position_relative(self, tip):
+        """
+        更新鼠标位置（相对移动）
+        """
+        try:
+            if self.thumb_middle_finger_distance < self.CLICK_DISTANCE_THRESHOLD:
+                if self.start_move_tip is None:
+                    self.start_move_tip = tip
+                    return
+                
+                mouse_x = self.last_position[0] + (tip[0] - self.start_move_tip[0]) * -1000
+                mouse_y = self.last_position[1] + (tip[1] - self.start_move_tip[1]) * 1000
+
+                self.bc.move_foreground(int(mouse_x), int(mouse_y), relative=True)
+
+            else:
+                self.start_move_tip = None
+                # 更新最后位置
+                self.last_position = self.bc.get_cursor_position()
+        
+        except Exception as e:
+            print(f"更新鼠标位置（相对移动）时发生错误: {e}")
     
     def _update_mouse_position(self, x, y):
         """
-        更新鼠标位置（优化版本）
+        更新鼠标位置
         """
         try:
             # 检查移动距离是否超过阈值
@@ -440,7 +358,7 @@ class GestureMouse:
                 
                 # 移动鼠标（在拖拽模式下也允许移动）
                 if not self.is_click or self.is_dragging:
-                    self.bc.move_foreground(int(avg_x), int(avg_y), relative=False)
+                    self.bc.move_foreground(int(avg_x), int(avg_y), relative=True)
                 
                 # 更新最后位置
                 self.last_position = (avg_x, avg_y)
@@ -457,7 +375,7 @@ class GestureMouse:
         """
         dx = abs(x - self.last_position[0])
         dy = abs(y - self.last_position[1])
-        return dx > self.MIN_MOVEMENT_THRESHOLD or dy > self.MIN_MOVEMENT_THRESHOLD
+        return (dx > self.MIN_MOVEMENT_THRESHOLD or dy > self.MIN_MOVEMENT_THRESHOLD) and self.thumb_middle_finger_distance < self.CLICK_DISTANCE_THRESHOLD
     
     def _calculate_weighted_average(self):
         """
@@ -478,12 +396,7 @@ class GestureMouse:
         3. 增强响应性
         """
         try:
-            # 更新冷却时间
-            if self.click_cooldown > 0:
-                self.click_cooldown -= 1
-                return
-            
-            current_click_state = self.current_distance < self.CLICK_DISTANCE_THRESHOLD
+            current_click_state = self.thumb_index_finger_distance < self.CLICK_DISTANCE_THRESHOLD
             
             # 状态变化检测
             if current_click_state != self.last_click_state:
@@ -499,7 +412,7 @@ class GestureMouse:
                 self.click_duration += 1
                 
                 # 检查是否进入拖拽模式
-                if not self.is_dragging and self.click_duration >= self.DRAG_THRESHOLD_DURATION:
+                if not self.is_dragging and self.thumb_index_finger_distance >= self.DRAG_THRESHOLD_DURATION:
                     self.is_dragging = True
                     self.bc.mouse_down_current_hardware()
                     print("\n进入拖拽模式")
@@ -526,8 +439,6 @@ class GestureMouse:
                     self.bc.mouse_up_current_hardware()
                     print(f"\n拖拽结束（持续时间: {self.click_duration}帧）")
 
-            self.click_cooldown = self.CLICK_COOLDOWN  # 拖拽后设置冷却
-            
             self.is_click = False
             self.is_dragging = False
             self.click_duration = 0
@@ -540,7 +451,7 @@ class GestureMouse:
         elif self.is_click:
             status_text = "点击中"
         
-        print(f"手指距离: {self.current_distance:.3f} | 状态: {status_text} | 持续时间: {self.click_duration}帧       ", end="\r")
+        print(f"拇指距离: {self.thumb_index_finger_distance:.3f} | 中指距离: {self.thumb_middle_finger_distance:.3f} | 状态: {status_text} | 持续时间: {self.click_duration}帧       ", end="\r")
 
 
 if __name__ == "__main__":
