@@ -218,7 +218,7 @@ class GestureMouse:
     
     # 优化后的常量定义
     CLICK_DISTANCE_THRESHOLD = 0.05  # 降低点击阈值，提高灵敏度
-    SMOOTHING_WINDOW_SIZE = 8  # 增加平滑窗口大小，减少抖动
+    SMOOTHING_WINDOW_SIZE = 5  # 增加平滑窗口大小，减少抖动
     MIN_MOVEMENT_THRESHOLD = 1  # 降低移动阈值，提高灵敏度
     CLICK_MIN_DURATION = 2  # 减少最小持续时间
     DRAG_THRESHOLD_DURATION = 10  # 减少拖拽阈值
@@ -233,14 +233,22 @@ class GestureMouse:
         self.start_move_tip = None
         self.start_move_pos = None
         
-        # 位置平滑
-        initial_pos = self.bc.get_cursor_position()
-        self.location_list = np.tile([initial_pos], (self.SMOOTHING_WINDOW_SIZE, 1))
+        # 位置平滑 - 使用相对坐标初始化（0-1范围）
+        initial_pos = [0.5, 0.5]  # 屏幕中心对应的相对坐标
+      
+        self.thumb_location_list = np.tile([initial_pos], (self.SMOOTHING_WINDOW_SIZE, 1))
+        self.index_location_list = np.tile([initial_pos], (self.SMOOTHING_WINDOW_SIZE, 1))
+        self.middle_location_list = np.tile([initial_pos], (self.SMOOTHING_WINDOW_SIZE, 1))
+        
+
         self.thumb_middle_finger_distance = 0.0
         self.thumb_index_finger_distance = 0.0
         
-        # 性能优化
-        self._weights = np.arange(1, self.SMOOTHING_WINDOW_SIZE + 1, dtype=np.float32)
+        # 性能优化 - 使用指数衰减权重，让最近的数据权重更大
+        # 权重分布：最近的数据权重最大，逐渐衰减
+        decay_factor = 0.7  # 衰减因子，越小衰减越快
+        self._weights = np.array([decay_factor ** (self.SMOOTHING_WINDOW_SIZE - i - 1) 
+                                 for i in range(self.SMOOTHING_WINDOW_SIZE)], dtype=np.float32)
         self._total_weight = np.sum(self._weights)
         
         # 缓存
@@ -261,13 +269,14 @@ class GestureMouse:
         try:
             if len(hand_landmarks_list) == 0:
                 return
-                
+
             current_hand_landmarks = hand_landmarks_list[0]
             
             # 计算拇指和食指位置
-            thumb_tip = current_hand_landmarks[HandLandmark.THUMB_TIP]
-            index_finger_tip = current_hand_landmarks[HandLandmark.INDEX_FINGER_TIP]
-            middle_finger_tip = current_hand_landmarks[HandLandmark.MIDDLE_FINGER_TIP]
+            self._update_location_list(current_hand_landmarks)
+            thumb_tip = self._calculate_weighted_average(self.thumb_location_list)
+            index_finger_tip = self._calculate_weighted_average(self.index_location_list)
+            middle_finger_tip = self._calculate_weighted_average(self.middle_location_list)
             
             # 计算鼠标位置（食指位置）
             # mouse_x, mouse_y = self._calculate_mouse_position(index_finger_tip)
@@ -348,15 +357,9 @@ class GestureMouse:
                 mouse_x = self.start_move_pos[0] + delta_x
                 mouse_y = self.start_move_pos[1] + delta_y
 
-                # 更新位置列表
-                self.location_list = np.roll(self.location_list, -1, axis=0)
-                self.location_list[-1] = [mouse_x, mouse_y]
-
-                avg_x, avg_y = self._calculate_weighted_average()
-
                 # 添加移动频率控制，每2帧移动一次
                 if self._frame_counter % 2 == 0:
-                    self.bc.move_foreground(int(avg_x), int(avg_y), relative=True)
+                    self.bc.move_foreground(int(mouse_x), int(mouse_y), relative=True)
 
             else:
                 self.start_move_tip = None
@@ -372,14 +375,49 @@ class GestureMouse:
         dy = abs(y - self.start_move_pos[1])
         return (dx > self.MIN_MOVEMENT_THRESHOLD or dy > self.MIN_MOVEMENT_THRESHOLD) and self.thumb_middle_finger_distance < self.CLICK_DISTANCE_THRESHOLD
     
-    def _calculate_weighted_average(self):
+    def _update_location_list(self, current_hand_landmarks):
         """
-        计算加权平均位置
+        更新位置列表（优化版本）
         """
-        weighted_x = np.sum(self.location_list[:, 0] * self._weights)
-        weighted_y = np.sum(self.location_list[:, 1] * self._weights)
+        thumb_tip = current_hand_landmarks[HandLandmark.THUMB_TIP]
+        index_finger_tip = current_hand_landmarks[HandLandmark.INDEX_FINGER_TIP]
+        middle_finger_tip = current_hand_landmarks[HandLandmark.MIDDLE_FINGER_TIP]
         
-        return weighted_x / self._total_weight, weighted_y / self._total_weight
+        self.thumb_location_list = np.roll(self.thumb_location_list, -1, axis=0)
+        self.thumb_location_list[-1] = [thumb_tip[0], thumb_tip[1]]
+        
+        self.index_location_list = np.roll(self.index_location_list, -1, axis=0)
+        self.index_location_list[-1] = [index_finger_tip[0], index_finger_tip[1]]
+        
+        self.middle_location_list = np.roll(self.middle_location_list, -1, axis=0)
+        self.middle_location_list[-1] = [middle_finger_tip[0], middle_finger_tip[1]]
+        
+    def _calculate_weighted_average(self, location_list):
+        """
+        计算加权平均位置（优化版本）
+        """
+        try:
+            # 检查数据有效性
+            if np.any(np.isnan(location_list)) or np.any(np.isinf(location_list)):
+                # 如果数据无效，返回最近的有效位置
+                return location_list[-1][0], location_list[-1][1]
+            
+            # 计算加权平均
+            weighted_x = np.sum(location_list[:, 0] * self._weights)
+            weighted_y = np.sum(location_list[:, 1] * self._weights)
+            avg_x = weighted_x / self._total_weight
+            avg_y = weighted_y / self._total_weight
+            
+            # 确保结果在有效范围内（0-1）
+            avg_x = max(0.0, min(1.0, avg_x))
+            avg_y = max(0.0, min(1.0, avg_y))
+            
+            return avg_x, avg_y
+            
+        except Exception as e:
+            print(f"加权平均计算错误: {e}")
+            # 出错时返回最近的有效位置
+            return location_list[-1][0], location_list[-1][1]
     
     def _handle_click_event(self):
         """
@@ -391,52 +429,23 @@ class GestureMouse:
         3. 增强响应性
         """
         try:
-            current_click_state = self.thumb_index_finger_distance < self.CLICK_DISTANCE_THRESHOLD
-            
-            # 状态变化检测
-            if current_click_state != self.last_click_state:
-                if current_click_state:  # 开始点击
-                    self._start_click()
-                else:  # 结束点击
-                    self._end_click()
-                
-                self.last_click_state = current_click_state
-            
-            # 处理持续点击状态
-            if self.is_click:
-                self.click_duration += 1
-                
-                # 检查是否进入拖拽模式
-                if not self.is_dragging and self.thumb_index_finger_distance >= self.DRAG_THRESHOLD_DURATION:
-                    self.is_dragging = True
+            if self.thumb_index_finger_distance < self.CLICK_DISTANCE_THRESHOLD:
+                if self.thumb_middle_finger_distance < self.CLICK_DISTANCE_THRESHOLD:
                     self.bc.mouse_down_current_hardware()
-                    print("\n进入拖拽模式")
-
-        except Exception as e:
-            print(f"处理点击事件时发生错误: {e}")
-    
-    def _start_click(self):
-        """开始点击"""
-        self.is_click = True
-        self.is_dragging = False
-        self.click_duration = 1
-        self.click_start_time = time.time()
-        print("\n点击开始")
-    
-    def _end_click(self):
-        """结束点击"""
-        if self.is_click:
-            if self.click_duration < self.DRAG_THRESHOLD_DURATION:
-                self.bc.mouse_click_current_hardware()
-                print(f"\n点击结束（持续时间: {self.click_duration}帧）")
+                    self.is_dragging = True
+                    print("\n拖拽")
+                else:
+                    self.bc.mouse_click_current_hardware()
+                    print("\n点击")
             else:
                 if self.is_dragging:
                     self.bc.mouse_up_current_hardware()
-                    print(f"\n拖拽结束（持续时间: {self.click_duration}帧）")
+                    self.is_dragging = False
+                    print("\n释放")
+            
 
-            self.is_click = False
-            self.is_dragging = False
-            self.click_duration = 0
+        except Exception as e:
+            print(f"处理点击事件时发生错误: {e}")
     
     def _display_status(self):
         """显示状态信息"""
