@@ -3,7 +3,7 @@ import traceback
 import numpy as np
 from collections import deque
 from utils.hgr_utils import HGRUtils, HandLandmark
-from utils.gui_utils import BackgroundController
+from utils.gui_utils import GUIController, HardwareController
 
 class GestureControl:
     """
@@ -50,7 +50,7 @@ class GestureControl:
         
         # 初始化功能模块
         self.function_list = [
-            GestureMouse(self.bc)
+            GestureMouse(self.gui_controller)
         ]
         
         print(f"手势控制系统初始化完成 - 数据目录: {self.data_dir}, 控制方法: {self.control_method}")
@@ -59,12 +59,11 @@ class GestureControl:
         """初始化核心组件"""
         try:
             self.hgr_utils = HGRUtils(self.data_dir)
-            self.bc = BackgroundController()
-            self.bc.set_control_method(self.control_method)
+            self.gui_controller = HardwareController()
             
             # 优化后台运行性能
-            self.bc.boost_priority()
-            self.bc.optimize_for_background()
+            self.gui_controller.boost_priority()
+            self.gui_controller.optimize_for_background()
         except Exception as e:
             print(f"组件初始化失败: {e}")
             raise
@@ -172,8 +171,6 @@ class GestureControl:
             if sleep_time > 0:
                 time.sleep(sleep_time)
 
-            print(f"当前帧率: {1.0 / (time.time() - start_time):.2f}", end="\r")
-                        
         except Exception as e:
             print(f"帧率控制时发生错误: {e}")
 
@@ -217,24 +214,22 @@ class GestureMouse:
     """
     
     # 优化后的常量定义
-    CLICK_DISTANCE_THRESHOLD = 0.05  # 降低点击阈值，提高灵敏度
+    CLICK_DISTANCE_THRESHOLD = 8  # 降低点击阈值，提高灵敏度
     SMOOTHING_WINDOW_SIZE = 5  # 增加平滑窗口大小，减少抖动
     MIN_MOVEMENT_THRESHOLD = 1  # 降低移动阈值，提高灵敏度
-    CLICK_MIN_DURATION = 2  # 减少最小持续时间
-    DRAG_THRESHOLD_DURATION = 10  # 减少拖拽阈值
+    SENSITIVITY = 1500.0
     SCALE = 1.3
     
-    def __init__(self, bc: BackgroundController):
+    def __init__(self, gui_controller: GUIController):
         """初始化手势鼠标控制（优化版本）"""
-        self.bc = bc
+        self.gui_controller = gui_controller
         self.is_click = False
         self.is_dragging = False
-        self.click_duration = 0
         self.start_move_tip = None
         self.start_move_pos = None
         
         # 位置平滑 - 使用相对坐标初始化（0-1范围）
-        initial_pos = [0.5, 0.5]  # 屏幕中心对应的相对坐标
+        initial_pos = [0.5, 0.5, 1.0]  # 屏幕中心对应的相对坐标
       
         self.thumb_location_list = np.tile([initial_pos], (self.SMOOTHING_WINDOW_SIZE, 1))
         self.index_location_list = np.tile([initial_pos], (self.SMOOTHING_WINDOW_SIZE, 1))
@@ -293,6 +288,8 @@ class GestureMouse:
             
             # 处理点击事件
             self._handle_click_event()
+
+            self._display_status()
                 
         except Exception as e:
             print(f"鼠标控制更新时发生错误: {e}")
@@ -301,25 +298,25 @@ class GestureMouse:
         """暂停手势鼠标控制"""
         self.is_click = False
         self.is_dragging = False
-        self.bc.mouse_up_current_hardware()
+        self.gui_controller.mouse_button(-1, -1, False, "left")
 
     def _calculate_mouse_position(self, tip):
         """
         计算鼠标屏幕位置（优化版本）
         """
-        x = (1 - tip[0]) * self.bc.screen_size[0]
-        y = tip[1] * self.bc.screen_size[1]
+        x = (1 - tip[0]) * self.gui_controller.screen_size[0]
+        y = tip[1] * self.gui_controller.screen_size[1]
         
         # 应用缩放
-        center_x = self.bc.screen_size[0] / 2
-        center_y = self.bc.screen_size[1] / 2
+        center_x = self.gui_controller.screen_size[0] / 2
+        center_y = self.gui_controller.screen_size[1] / 2
         
         x = center_x + (x - center_x) * self.SCALE
         y = center_y + (y - center_y) * self.SCALE
         
         # 限制在屏幕范围内
-        x = max(0, min(x, self.bc.screen_size[0] - 1))
-        y = max(0, min(y, self.bc.screen_size[1] - 1))
+        x = max(0, min(x, self.gui_controller.screen_size[0] - 1))
+        y = max(0, min(y, self.gui_controller.screen_size[1] - 1))
         
         return x, y
     
@@ -331,6 +328,8 @@ class GestureMouse:
         dy = tip1[1] - tip2[1]
         # 直接使用欧几里得距离，不缩放
         distance = (dx**2 + dy**2)**0.5
+
+        distance = distance / tip1[2] * -10
         
         return distance
 
@@ -341,14 +340,13 @@ class GestureMouse:
         try:
             if self.thumb_middle_finger_distance < self.CLICK_DISTANCE_THRESHOLD:
                 if self.start_move_tip is None:
-                    print("thumb_middle_finger_distance: ", self.thumb_middle_finger_distance)
                     self.start_move_tip = tip
-                    self.start_move_pos = self.bc.get_cursor_position()
+                    self.start_move_pos = self.gui_controller.get_cursor_position()
                     return
                 
                 # 计算移动距离，添加移动阈值
-                delta_x = (tip[0] - self.start_move_tip[0]) * -1000
-                delta_y = (tip[1] - self.start_move_tip[1]) * 1000
+                delta_x = (tip[0] - self.start_move_tip[0]) * -self.SENSITIVITY
+                delta_y = (tip[1] - self.start_move_tip[1]) * self.SENSITIVITY
                 
                 # 添加移动阈值，减少微小移动
                 if abs(delta_x) < 2 and abs(delta_y) < 2:
@@ -359,7 +357,7 @@ class GestureMouse:
 
                 # 添加移动频率控制，每2帧移动一次
                 if self._frame_counter % 2 == 0:
-                    self.bc.move_foreground(int(mouse_x), int(mouse_y), relative=True)
+                    self.gui_controller.mouse_move(int(mouse_x), int(mouse_y))
 
             else:
                 self.start_move_tip = None
@@ -384,13 +382,13 @@ class GestureMouse:
         middle_finger_tip = current_hand_landmarks[HandLandmark.MIDDLE_FINGER_TIP]
         
         self.thumb_location_list = np.roll(self.thumb_location_list, -1, axis=0)
-        self.thumb_location_list[-1] = [thumb_tip[0], thumb_tip[1]]
+        self.thumb_location_list[-1] = [thumb_tip[0], thumb_tip[1], thumb_tip[2]]
         
         self.index_location_list = np.roll(self.index_location_list, -1, axis=0)
-        self.index_location_list[-1] = [index_finger_tip[0], index_finger_tip[1]]
+        self.index_location_list[-1] = [index_finger_tip[0], index_finger_tip[1], index_finger_tip[2]]
         
         self.middle_location_list = np.roll(self.middle_location_list, -1, axis=0)
-        self.middle_location_list[-1] = [middle_finger_tip[0], middle_finger_tip[1]]
+        self.middle_location_list[-1] = [middle_finger_tip[0], middle_finger_tip[1], middle_finger_tip[2]]
         
     def _calculate_weighted_average(self, location_list):
         """
@@ -400,19 +398,22 @@ class GestureMouse:
             # 检查数据有效性
             if np.any(np.isnan(location_list)) or np.any(np.isinf(location_list)):
                 # 如果数据无效，返回最近的有效位置
-                return location_list[-1][0], location_list[-1][1]
+                return location_list[-1][0], location_list[-1][1], location_list[-1][2]
             
             # 计算加权平均
             weighted_x = np.sum(location_list[:, 0] * self._weights)
             weighted_y = np.sum(location_list[:, 1] * self._weights)
+            weighted_z = np.sum(location_list[:, 2] * self._weights)
+            
             avg_x = weighted_x / self._total_weight
             avg_y = weighted_y / self._total_weight
+            avg_z = weighted_z / self._total_weight
             
             # 确保结果在有效范围内（0-1）
             avg_x = max(0.0, min(1.0, avg_x))
             avg_y = max(0.0, min(1.0, avg_y))
             
-            return avg_x, avg_y
+            return avg_x, avg_y, avg_z
             
         except Exception as e:
             print(f"加权平均计算错误: {e}")
@@ -429,20 +430,26 @@ class GestureMouse:
         3. 增强响应性
         """
         try:
-            if self.thumb_index_finger_distance < self.CLICK_DISTANCE_THRESHOLD:
-                if self.thumb_middle_finger_distance < self.CLICK_DISTANCE_THRESHOLD:
-                    self.bc.mouse_down_current_hardware()
+            is_index = self.thumb_index_finger_distance < self.CLICK_DISTANCE_THRESHOLD
+            is_middle = self.thumb_middle_finger_distance < self.CLICK_DISTANCE_THRESHOLD
+            if is_index and is_middle:
+                if not self.is_dragging:
+                    self.gui_controller.mouse_button(-1, -1, True, "left")
                     self.is_dragging = True
+                    self.is_click = True
                     print("\n拖拽")
-                else:
-                    self.bc.mouse_click_current_hardware()
-                    print("\n点击")
             else:
                 if self.is_dragging:
-                    self.bc.mouse_up_current_hardware()
+                    self.gui_controller.mouse_button(-1, -1, False, "left")
                     self.is_dragging = False
                     print("\n释放")
-            
+            if is_index:
+                if not self.is_click and not self.is_dragging:
+                    self.gui_controller.click(-1, -1, "left")
+                    self.is_click = True
+                    print("\n点击")
+            else:
+                self.is_click = False
 
         except Exception as e:
             print(f"处理点击事件时发生错误: {e}")
@@ -452,10 +459,8 @@ class GestureMouse:
         status_text = "未点击"
         if self.is_dragging:
             status_text = "拖拽中"
-        elif self.is_click:
-            status_text = "点击中"
         
-        print(f"拇指距离: {self.thumb_index_finger_distance:.3f} | 中指距离: {self.thumb_middle_finger_distance:.3f} | 状态: {status_text} | 持续时间: {self.click_duration}帧       ", end="\r")
+        print(f"食指距离: {self.thumb_index_finger_distance:.3f} | 中指距离: {self.thumb_middle_finger_distance:.3f} | 状态: {status_text}      ", end="\r")
 
 
 if __name__ == "__main__":

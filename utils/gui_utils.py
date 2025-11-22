@@ -1,4 +1,3 @@
-from re import T
 import win32gui
 import win32con
 import win32api
@@ -9,13 +8,10 @@ import psutil
 from typing import Tuple, Optional, Union, List, Dict, Literal
 
 
-class Controller:
+class GUIController:
     def __init__(self):
-        self._foreground_window_cache = None
-        self._window_list_cache = None
-        self._cache_time = 0
-        self._cache_ttl = 2  # 缓存有效期（秒）
         self.screen_size = (win32api.GetSystemMetrics(0), win32api.GetSystemMetrics(1))
+        self.VK_const = win32con
 
     def boost_priority(self, pid=None):
         """提高当前进程或目标进程的优先级（增强版）"""
@@ -129,6 +125,35 @@ class Controller:
             print(f"获取窗口信息失败: {e}")
             return None
   
+    def find_window(self, window_title: str, exact_match: bool = False) -> Optional[int]:
+        """
+        查找窗口句柄
+        
+        :param window_title: 窗口标题（支持部分匹配）
+        :param exact_match: 是否精确匹配标题
+        :return: 窗口句柄，未找到返回None
+        """
+        # 精确匹配
+        if exact_match:
+            hwnd = win32gui.FindWindow(None, window_title)
+            if hwnd:
+                return hwnd
+        
+        # 部分匹配
+        def enum_windows_proc(hwnd, _):
+            if win32gui.IsWindowVisible(hwnd):
+                title = win32gui.GetWindowText(hwnd)
+                if window_title.lower() in title.lower():
+                    # 使用闭包返回结果
+                    enum_windows_proc.found_hwnd = hwnd
+                    return False  # 停止枚举
+            return True
+        
+        enum_windows_proc.found_hwnd = None
+        win32gui.EnumWindows(enum_windows_proc, None)
+        
+        return enum_windows_proc.found_hwnd
+
     def find_windows_by_process(self, process_name: str) -> List[Dict[str, any]]:
         """
         根据进程名查找所有相关窗口
@@ -240,180 +265,211 @@ class Controller:
         else:
             return -1, -1
 
-    def mouse_button(self):
-        pass
-
-    def mouse_move(self):
-        pass
-
-    def key(self):
-        pass
-
-    def type_keys(self):
-        pass
-
-
-class MessageController(Controller):
-    def __init__(self) -> None:
-        super().__init__()
-
-    def find_window(self, window_title: str, exact_match: bool = False) -> Optional[int]:
+    def click(self, x: int, y: int, button: str = 'left', delay: float = 0.1) -> bool:
         """
-        查找窗口句柄
+        点击鼠标
         
-        :param window_title: 窗口标题（支持部分匹配）
-        :param exact_match: 是否精确匹配标题
-        :return: 窗口句柄，未找到返回None
+        :param x: 点击位置的x坐标
+        :param y: 点击位置的y坐标
+        :param button: 鼠标按钮 'left', 'right', 'middle'
+        :param delay: 点击间隔时间（秒）
+        :return: 是否成功
         """
-        # 精确匹配
-        if exact_match:
-            hwnd = win32gui.FindWindow(None, window_title)
-            if hwnd:
-                return hwnd
-        
-        # 部分匹配
-        def enum_windows_proc(hwnd, _):
-            if win32gui.IsWindowVisible(hwnd):
-                title = win32gui.GetWindowText(hwnd)
-                if window_title.lower() in title.lower():
-                    # 使用闭包返回结果
-                    enum_windows_proc.found_hwnd = hwnd
-                    return False  # 停止枚举
-            return True
-        
-        enum_windows_proc.found_hwnd = None
-        win32gui.EnumWindows(enum_windows_proc, None)
-        
-        return enum_windows_proc.found_hwnd
+        self.mouse_button(x, y, True, button)
+        time.sleep(delay)
+        self.mouse_button(x, y, False, button)
+        return True
 
-    def mouse_button(self, hwnd: int, x: int, y: int, down: bool, button: str = 'left', relative_to_window: bool = True) -> bool:
+    # --------------------------------------------------------------------------------------
+    def mouse_button(self, x: int, y: int, down: bool, button: Literal['left', 'right', 'middle'] = 'left') -> bool:
         """
         使用窗口消息方法发送鼠标点击
         
-        :param hwnd: 窗口句柄
         :param x: 点击位置的x坐标
         :param y: 点击位置的y坐标
         :param down: 是否按下鼠标按钮
         :param button: 鼠标按钮 'left', 'right', 'middle'
-        :param relative_to_window: 坐标是否相对于窗口
+        :return: 是否成功
+        """
+        pass
+
+    def mouse_scroll(self, x: int, y: int, scroll_amount: int) -> bool:
+        """
+        鼠标滚动
+        
+        :param x: 滚动位置的x坐标
+        :param y: 滚动位置的y坐标
+        :param scroll_amount: 滚动量（正值向上滚动，负值向下滚动）
+        :return: 是否成功
+        """
+        pass
+
+    def mouse_move(self, x: int, y: int) -> bool:
+        """
+        使用窗口消息方法移动鼠标
+        
+        :param x: 目标位置的x坐标
+        :param y: 目标位置的y坐标
+        :return: 是否成功
+        """
+        pass
+
+    def key(self, virtual_key: int, down: bool = True) -> bool:
+        """
+        使用窗口消息方法发送键盘事件
+        
+        :param down: 是否按下按键
+        :param virtual_key: 虚拟按键码（如 win32con.VK_A, win32con.VK_F1, win32con.VK_LEFT）
+        :return: 是否成功
+        """
+        pass
+
+    def type_keys(self, text: str, delay: float = 0.1) -> bool:
+        """
+        模拟输入文本
+        
+        :param text: 要输入的文本
+        :param delay: 每个字符之间的延迟时间（秒）
+        :return: 是否成功
+        """
+        pass
+
+
+class MessageController(GUIController):
+    def __init__(self) -> None:
+        super().__init__()
+        self.hwnd = self.get_foreground_hwnd()
+
+    def set_hwnd(self, hwnd: int) -> bool:
+        """
+        设置当前操作的窗口句柄
+        
+        :param hwnd: 窗口句柄
         :return: 是否成功
         """
         if not hwnd or not self.ensure_window_ready(hwnd):
             return False
+        self.hwnd = hwnd
+        return True
+
+    def set_hwnd_foreground(self) -> bool:
+        """
+        设置当前操作的窗口句柄为前台窗口
+        
+        :return: 是否成功
+        """
+        if not self.set_hwnd(self.get_foreground_hwnd()):
+            return False
+        return True
+
+    def mouse_button(self, x: int, y: int, down: bool, button: Literal['left', 'right', 'middle'] = 'left') -> bool:
+        """
+        使用窗口消息方法发送鼠标点击
+        
+        :param x: 点击位置的x坐标
+        :param y: 点击位置的y坐标
+        :param down: 是否按下鼠标按钮
+        :param button: 鼠标按钮 'left', 'right', 'middle'
+        :return: 是否成功
+        """
+        if not self.hwnd or not self.ensure_window_ready(self.hwnd):
+            return False
         
         # 获取窗口位置和大小
-        rect = win32gui.GetWindowRect(hwnd)
+        rect = win32gui.GetWindowRect(self.hwnd)
         window_x, window_y = rect[0], rect[1]
         
-        # 转换坐标
-        if relative_to_window:
-            screen_x = window_x + x
-            screen_y = window_y + y
-        else:
-            screen_x, screen_y = x, y
-        
         # 确保坐标在窗口内
-        if not (window_x <= screen_x <= rect[2] and window_y <= screen_y <= rect[3]):
-            print(f"坐标({screen_x}, {screen_y})不在窗口区域内")
+        if not (window_x <= x <= rect[2] and window_y <= y <= rect[3]):
+            print(f"坐标({x}, {y})不在窗口区域内")
             return False
         
         # 将屏幕坐标转换为窗口客户区坐标
-        point = win32api.MAKELONG(screen_x - window_x, screen_y - window_y)
+        point = win32api.MAKELONG(x - window_x, y - window_y)
         
         message = win32con.WM_LBUTTONDOWN if down else win32con.WM_LBUTTONUP
 
         # 发送鼠标消息
         if button == 'left':
-            win32gui.SendMessage(hwnd, message, win32con.MK_LBUTTON, point)
+            win32gui.SendMessage(self.hwnd, message, win32con.MK_LBUTTON, point)
         elif button == 'right':
-            win32gui.SendMessage(hwnd, message, win32con.MK_RBUTTON, point)
+            win32gui.SendMessage(self.hwnd, message, win32con.MK_RBUTTON, point)
         elif button == 'middle':
-            win32gui.SendMessage(hwnd, message, win32con.MK_MBUTTON, point)
+            win32gui.SendMessage(self.hwnd, message, win32con.MK_MBUTTON, point)
         else:
             return False
         
         return True
 
-    def mouse_move(self, hwnd: int, x: int, y: int, relative_to_window: bool = True) -> bool:
+    def mouse_move(self, x: int, y: int) -> bool:
         """
         使用窗口消息方法移动鼠标（不实际移动物理鼠标）
         
-        :param hwnd: 窗口句柄
         :param x: 目标位置的x坐标
         :param y: 目标位置的y坐标
-        :param relative_to_window: 坐标是否相对于窗口
         :return: 是否成功
         """
-        if not hwnd or not self.ensure_window_ready(hwnd):
+        if not self.hwnd or not self.ensure_window_ready(self.hwnd):
             return False
         
         # 获取窗口位置和大小
-        rect = win32gui.GetWindowRect(hwnd)
+        rect = win32gui.GetWindowRect(self.hwnd)
         window_x, window_y = rect[0], rect[1]
         
-        # 转换坐标
-        if relative_to_window:
-            screen_x = window_x + x
-            screen_y = window_y + y
-        else:
-            screen_x, screen_y = x, y
-        
         # 确保坐标在窗口内
-        if not (window_x <= screen_x <= rect[2] and window_y <= screen_y <= rect[3]):
-            print(f"坐标({screen_x}, {screen_y})不在窗口区域内")
+        if not (window_x <= x <= rect[2] and window_y <= y <= rect[3]):
+            print(f"坐标({x}, {y})不在窗口区域内")  
             return False
         
         # 将屏幕坐标转换为窗口客户区坐标
         point = win32api.MAKELONG(screen_x - window_x, screen_y - window_y)
         
         # 发送鼠标移动消息
-        win32gui.SendMessage(hwnd, win32con.WM_MOUSEMOVE, 0, point)
+        win32gui.SendMessage(self.hwnd, win32con.WM_MOUSEMOVE, 0, point)
         return True
 
-    def key(self, hwnd: int, down: bool, virtual_key: int) -> bool:
+    def key(self, virtual_key: int, down: bool = True) -> bool:
         """
         发送按键
         
-        :param hwnd: 窗口句柄
-        :param down: 是否按下按键
         :param virtual_key: 虚拟键码（如win32con.VK_RETURN）
+        :param down: 是否按下按键
         :return: 是否成功
         """
-        if not hwnd or not self.ensure_window_ready(hwnd):
+        if not self.hwnd or not self.ensure_window_ready(self.hwnd):
             return False
         
         # 发送按键按下和释放消息
         if down:
-            win32gui.SendMessage(hwnd, win32con.WM_KEYDOWN, virtual_key, 0)
+            win32gui.SendMessage(self.hwnd, win32con.WM_KEYDOWN, virtual_key, 0)
         else:
-            win32gui.SendMessage(hwnd, win32con.WM_KEYUP, virtual_key, 0)
+            win32gui.SendMessage(self.hwnd, win32con.WM_KEYUP, virtual_key, 0)
         return True
 
-    def type_keys(self, hwnd: int, text: str, delay: float = 0.01) -> bool:
+    def type_keys(self, text: str, delay: float = 0.01) -> bool:
         """
         向窗口发送按键（窗口消息方法）
         
-        :param hwnd: 窗口句柄
         :param text: 要发送的文本
         :param delay: 按键间延迟（秒）
         :return: 是否成功
         """
-        if not hwnd or not self.ensure_window_ready(hwnd):
+        if not self.hwnd or not self.ensure_window_ready(self.hwnd):
             return False
         
         for char in text:
-            win32gui.SendMessage(hwnd, win32con.WM_CHAR, ord(char), 0)
+            win32gui.SendMessage(self.hwnd, win32con.WM_CHAR, ord(char), 0)
             time.sleep(delay)
         
         return True
 
 
-class HardwareController(Controller):
+class HardwareController(GUIController):
     def __init__(self) -> None:
         super().__init__()
         self.user32 = ctypes.windll.user32
 
-    def mouse_button(self, down: bool, button: str = 'left') -> bool:
+    def mouse_button(self, x: int, y: int, down: bool, button: Literal['left', 'right', 'middle'] = 'left') -> bool:
         """
         在当前鼠标位置按下鼠标按钮
         
@@ -421,6 +477,9 @@ class HardwareController(Controller):
         :param button: 鼠标按钮 'left', 'right', 'middle'
         :return: 是否成功
         """
+        if x > 0 and y > 0:
+            self.mouse_move(x, y)
+
         try:
             if button == 'left':
                 if down:
@@ -444,43 +503,24 @@ class HardwareController(Controller):
             print(f"鼠标按下操作失败: {e}")
             return False
 
-    def mouse_move(self, x: int, y: int, duration: float = 0) -> bool:
+    def mouse_move(self, x: int, y: int) -> bool:
         """
         使用硬件模拟方法移动鼠标（实际移动物理鼠标指针）
         
         :param x: 目标x坐标（屏幕绝对坐标）
         :param y: 目标y坐标（屏幕绝对坐标）
-        :param duration: 移动持续时间（秒），0表示立即移动
         :return: 是否成功
         """
-        if duration <= 0:
-            # 立即移动
-            self.user32.SetCursorPos(x, y)
-            return True
-        
-        # 平滑移动
-        current_x, current_y = win32api.GetCursorPos()
-        steps = max(1, int(duration * 60))  # 每秒60帧
-        
-        for i in range(steps + 1):
-            t = i / steps
-            # 使用缓动函数使移动更自然
-            # ease_out_quad: t*(2-t)
-            eased_t = t * (2 - t)
-            current_step_x = int(current_x + (x - current_x) * eased_t)
-            current_step_y = int(current_y + (y - current_y) * eased_t)
-            
-            self.user32.SetCursorPos(current_step_x, current_step_y)
-            time.sleep(duration / steps)
-        
+
+        self.user32.SetCursorPos(x, y)
         return True
 
-    def key(self, down: bool, virtual_key: int) -> bool:
+    def key(self, virtual_key: int, down: bool = True) -> bool:
         """
         使用硬件模拟方法发送特殊按键
         
-        :param down: 是否按下按键
         :param virtual_key: 虚拟键码
+        :param down: 是否按下按键
         :return: 是否成功
         """
         # 按下键
