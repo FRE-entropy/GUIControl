@@ -4,6 +4,7 @@ import numpy as np
 from collections import deque
 from utils.hgr_utils import HGRUtils, HandLandmark
 from utils.gui_utils import GUIController, HardwareController
+from utils.logger import logger
 
 class GestureControl:
     """
@@ -53,7 +54,7 @@ class GestureControl:
             GestureMouse(self.gui_controller)
         ]
         
-        print(f"手势控制系统初始化完成 - 数据目录: {self.data_dir}, 控制方法: {self.control_method}")
+        logger.info(f"手势控制系统初始化完成 - 数据目录: {self.data_dir}, 控制方法: {self.control_method}")
     
     def _initialize_components(self):
         """初始化核心组件"""
@@ -65,7 +66,7 @@ class GestureControl:
             self.gui_controller.boost_priority()
             self.gui_controller.optimize_for_background()
         except Exception as e:
-            print(f"组件初始化失败: {e}")
+            logger.error(f"组件初始化失败: {e}")
             raise
 
     def test(self):
@@ -73,27 +74,27 @@ class GestureControl:
         try:
             hand_landmarks = self.hgr_utils.get_hand_landmarks()
             if hand_landmarks is None or len(hand_landmarks) == 0:
-                print("未检测到手部")
+                logger.info("未检测到手部")
                 return
-            print(hand_landmarks)
-            print(hand_landmarks[0].landmark[
+            logger.debug(f"手部关键点: {hand_landmarks}")
+            logger.debug(f"食指指尖坐标: {hand_landmarks[0].landmark[
                 self.hgr_utils.mp_hands.HandLandmark.INDEX_FINGER_TIP
-            ])
+            ]}")
         except Exception as e:
-            print(f"测试过程中发生错误: {e}")
+            logger.error(f"测试过程中发生错误: {e}")
 
     def start(self):
         """启动手势控制主循环"""
-        print("手势控制已启动，按Ctrl+C退出...")
+        logger.info("手势控制已启动，按Ctrl+C退出...")
         self.is_running = True
         
         try:
             self._run_main_loop()
         except KeyboardInterrupt:
-            print("\n手势控制已停止")
+            logger.info("手势控制已停止")
         except Exception as e:
-            print(f"发生错误: {e}")
-            traceback.print_exc()
+            logger.error(f"发生错误: {e}")
+            logger.error(traceback.format_exc())
         finally:
             self._cleanup()
     
@@ -122,7 +123,7 @@ class GestureControl:
                 
                 # 如果错误次数过多，停止运行
                 if self.error_count >= self.MAX_ERROR_COUNT:
-                    print(f"错误次数过多({self.error_count}次)，停止运行")
+                    logger.error(f"错误次数过多({self.error_count}次)，停止运行")
                     self.is_running = False
                     break
     
@@ -148,12 +149,12 @@ class GestureControl:
             return True
                 
         except Exception as e:
-            print(f"处理手势数据时发生错误: {e}")
+            logger.error(f"处理手势数据时发生错误: {e}")
             # 错误计数增加
             self.error_count += 1
             # 如果错误次数过多，停止运行
             if self.error_count >= self.MAX_ERROR_COUNT:
-                print(f"错误次数过多({self.error_count}次)，停止运行")
+                logger.error(f"错误次数过多({self.error_count}次)，停止运行")
                 self.is_running = False
             return False
     
@@ -172,7 +173,7 @@ class GestureControl:
                 time.sleep(sleep_time)
 
         except Exception as e:
-            print(f"帧率控制时发生错误: {e}")
+            logger.error(f"帧率控制时发生错误: {e}")
 
     def _handle_error(self, error):
         """
@@ -182,14 +183,14 @@ class GestureControl:
             error (Exception): 发生的错误对象
         """
         self.error_count += 1
-        print(f"发生错误 (第{self.error_count}次): {error}")
+        logger.error(f"发生错误 (第{self.error_count}次): {error}")
         
         # 短暂延迟，避免错误循环过快
         time.sleep(0.1)
     
     def _cleanup(self):
         """清理资源"""
-        print("正在清理资源...")
+        logger.info("正在清理资源...")
         self.is_running = False
         
         try:
@@ -197,9 +198,9 @@ class GestureControl:
                 if hasattr(self.hgr_utils, 'cleanup'):
                     self.hgr_utils.cleanup()
             
-            print("资源清理完成")
+            logger.info("资源清理完成")
         except Exception as e:
-            print(f"清理资源时发生错误: {e}")
+            logger.error(f"清理资源时发生错误: {e}")
 
 
 class GestureMouse:
@@ -292,7 +293,7 @@ class GestureMouse:
             self._display_status()
                 
         except Exception as e:
-            print(f"鼠标控制更新时发生错误: {e}")
+            logger.error(f"鼠标控制更新时发生错误: {e}")
 
     def pause(self):
         """暂停手势鼠标控制"""
@@ -363,7 +364,7 @@ class GestureMouse:
                 self.start_move_tip = None
         
         except Exception as e:
-            print(f"更新鼠标位置（相对移动）时发生错误: {e}")
+            logger.error(f"更新鼠标位置（相对移动）时发生错误: {e}")
 
     def _should_move_mouse(self, x, y):
         """
@@ -416,7 +417,7 @@ class GestureMouse:
             return avg_x, avg_y, avg_z
             
         except Exception as e:
-            print(f"加权平均计算错误: {e}")
+            logger.error(f"加权平均计算错误: {e}")
             # 出错时返回最近的有效位置
             return location_list[-1][0], location_list[-1][1]
     
@@ -437,22 +438,22 @@ class GestureMouse:
                     self.gui_controller.mouse_button(-1, -1, True, "left")
                     self.is_dragging = True
                     self.is_click = True
-                    print("\n拖拽")
+                    logger.info("拖拽开始")
             else:
                 if self.is_dragging:
                     self.gui_controller.mouse_button(-1, -1, False, "left")
                     self.is_dragging = False
-                    print("\n释放")
+                    logger.info("拖拽释放")
             if is_index:
                 if not self.is_click and not self.is_dragging:
                     self.gui_controller.click(-1, -1, "left")
                     self.is_click = True
-                    print("\n点击")
+                    logger.info("点击")
             else:
                 self.is_click = False
 
         except Exception as e:
-            print(f"处理点击事件时发生错误: {e}")
+            logger.error(f"处理点击事件时发生错误: {e}")
     
     def _display_status(self):
         """显示状态信息"""
@@ -460,7 +461,8 @@ class GestureMouse:
         if self.is_dragging:
             status_text = "拖拽中"
         
-        print(f"食指距离: {self.thumb_index_finger_distance:.3f} | 中指距离: {self.thumb_middle_finger_distance:.3f} | 状态: {status_text}      ", end="\r")
+        # 使用print在一行显示状态信息，不记录到日志文件
+        print(f"食指距离: {self.thumb_index_finger_distance:.3f} | 中指距离: {self.thumb_middle_finger_distance:.3f} | 状态: {status_text}", end='\r')
 
 
 if __name__ == "__main__":
@@ -471,5 +473,5 @@ if __name__ == "__main__":
         gesture_control = GestureControl()
         gesture_control.start()
     except Exception as e:
-        print(f"程序启动失败: {e}")
-        traceback.print_exc()
+        logger.error(f"程序启动失败: {e}")
+        logger.error(traceback.format_exc())

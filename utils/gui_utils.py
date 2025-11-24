@@ -6,12 +6,15 @@ import ctypes
 import time
 import psutil
 from typing import Tuple, Optional, Union, List, Dict, Literal
+from .logger import logger
 
 
 class GUIController:
     def __init__(self):
+        logger.debug("初始化GUIController")
         self.screen_size = (win32api.GetSystemMetrics(0), win32api.GetSystemMetrics(1))
         self.VK_const = win32con
+        logger.info(f"屏幕尺寸: {self.screen_size}")
 
     def boost_priority(self, pid=None):
         """提高当前进程或目标进程的优先级（增强版）"""
@@ -41,10 +44,10 @@ class GUIController:
             ctypes.windll.kernel32.CloseHandle(thread_handle)
             ctypes.windll.kernel32.CloseHandle(process_handle)
             
-            print(f"成功提高进程 {pid} 的优先级（进程: HIGH_PRIORITY_CLASS, 线程: THREAD_PRIORITY_HIGHEST）")
+            logger.info(f"成功提高进程 {pid} 的优先级（进程: HIGH_PRIORITY_CLASS, 线程: THREAD_PRIORITY_HIGHEST）")
             return True
         except Exception as e:
-            print(f"提高优先级失败: {e}")
+            logger.error(f"提高优先级失败: {e}")
             return False
     
     def optimize_for_background(self):
@@ -61,10 +64,10 @@ class GUIController:
             )
             
             ctypes.windll.kernel32.CloseHandle(process_handle)
-            print("已优化为后台运行模式（使用高优先级）")
+            logger.info("已优化为后台运行模式（使用高优先级）")
             return True
         except Exception as e:
-            print(f"后台优化失败: {e}")
+            logger.error(f"后台优化失败: {e}")
             return False
 
     def get_foreground_hwnd(self) -> Optional[int]:
@@ -73,9 +76,12 @@ class GUIController:
         
         :return: 当前前台窗口句柄，未找到返回None
         """
+        logger.debug("获取前台窗口句柄")
         hwnd = win32gui.GetForegroundWindow()
         if hwnd and win32gui.IsWindowVisible(hwnd):
+            logger.debug(f"找到前台窗口句柄: {hwnd}")
             return hwnd
+        logger.debug("未找到可见的前台窗口")
         return None
 
     def get_window_info(self, hwnd: int) -> Dict[str, any]:
@@ -85,7 +91,9 @@ class GUIController:
         :param hwnd: 窗口句柄
         :return: 窗口信息字典
         """
+        logger.debug(f"获取窗口信息，句柄: {hwnd}")
         if not hwnd or not win32gui.IsWindow(hwnd):
+            logger.warning(f"无效的窗口句柄: {hwnd}")
             return None
         
         # 获取窗口标题
@@ -122,7 +130,7 @@ class GUIController:
                 'process_name': process_name
             }
         except Exception as e:
-            print(f"获取窗口信息失败: {e}")
+            logger.error(f"获取窗口信息失败: {e}")
             return None
   
     def find_window(self, window_title: str, exact_match: bool = False) -> Optional[int]:
@@ -133,10 +141,12 @@ class GUIController:
         :param exact_match: 是否精确匹配标题
         :return: 窗口句柄，未找到返回None
         """
+        logger.debug(f"查找窗口，标题: '{window_title}', 精确匹配: {exact_match}")
         # 精确匹配
         if exact_match:
             hwnd = win32gui.FindWindow(None, window_title)
             if hwnd:
+                logger.debug(f"精确匹配找到窗口句柄: {hwnd}")
                 return hwnd
         
         # 部分匹配
@@ -152,6 +162,11 @@ class GUIController:
         enum_windows_proc.found_hwnd = None
         win32gui.EnumWindows(enum_windows_proc, None)
         
+        if enum_windows_proc.found_hwnd:
+            logger.debug(f"部分匹配找到窗口句柄: {enum_windows_proc.found_hwnd}")
+        else:
+            logger.debug(f"未找到匹配标题 '{window_title}' 的窗口")
+        
         return enum_windows_proc.found_hwnd
 
     def find_windows_by_process(self, process_name: str) -> List[Dict[str, any]]:
@@ -161,6 +176,7 @@ class GUIController:
         :param process_name: 进程名（如notepad.exe）
         :return: 窗口信息列表
         """
+        logger.debug(f"根据进程名查找窗口: {process_name}")
         windows = []
         
         def enum_windows_proc(hwnd, _):
@@ -177,6 +193,7 @@ class GUIController:
             return True
         
         win32gui.EnumWindows(enum_windows_proc, None)
+        logger.debug(f"找到 {len(windows)} 个与进程 '{process_name}' 相关的窗口")
         return windows
     
     def get_all_windows(self, force_refresh: bool = False) -> List[Dict[str, any]]:
@@ -186,10 +203,12 @@ class GUIController:
         :param force_refresh: 是否强制刷新缓存
         :return: 窗口信息列表
         """
+        logger.debug(f"获取所有可见窗口，强制刷新: {force_refresh}")
         current_time = time.time()
         
         # 使用缓存提高性能
         if not force_refresh and self._window_list_cache and current_time - self._cache_time < self._cache_ttl:
+            logger.debug(f"使用缓存，返回 {len(self._window_list_cache)} 个窗口")
             return self._window_list_cache
         
         windows = []
@@ -207,6 +226,7 @@ class GUIController:
         self._window_list_cache = windows
         self._cache_time = current_time
         
+        logger.debug(f"枚举完成，找到 {len(windows)} 个可见窗口")
         return windows
     
     def ensure_window_ready(self, hwnd: int) -> bool:
@@ -216,17 +236,22 @@ class GUIController:
         :param hwnd: 窗口句柄
         :return: 是否成功
         """
+        logger.debug(f"确保窗口就绪，句柄: {hwnd}")
         if not hwnd:
+            logger.warning("无效的窗口句柄")
             return False
         
         # 确保窗口可见
         if not win32gui.IsWindowVisible(hwnd):
+            logger.debug("窗口不可见，显示窗口")
             win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
         
         # 确保窗口未最小化
         if win32gui.IsIconic(hwnd):
+            logger.debug("窗口最小化，恢复窗口")
             win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
         
+        logger.debug("窗口已就绪")
         return True
 
     def get_cursor_position(self) -> Tuple[int, int]:
@@ -235,7 +260,9 @@ class GUIController:
         
         :return: (x, y) 坐标元组
         """
-        return win32api.GetCursorPos()
+        pos = win32api.GetCursorPos()
+        logger.debug(f"获取鼠标位置: {pos}")
+        return pos
 
     def get_cursor_position_relative(self, hwnd: int) -> Tuple[int, int]:
         """
@@ -244,7 +271,9 @@ class GUIController:
         :param hwnd: 窗口句柄
         :return: (x, y) 窗口内相对坐标，如果不在窗口内返回(-1, -1)
         """
+        logger.debug(f"获取鼠标相对于窗口 {hwnd} 的相对位置")
         if not hwnd:
+            logger.warning("无效的窗口句柄")
             return -1, -1
         
         # 获取窗口位置
@@ -261,8 +290,10 @@ class GUIController:
         # 检查是否在窗口内
         if (0 <= relative_x <= rect[2] - rect[0] and 
             0 <= relative_y <= rect[3] - rect[1]):
+            logger.debug(f"鼠标在窗口内，相对位置: ({relative_x}, {relative_y})")
             return relative_x, relative_y
         else:
+            logger.debug(f"鼠标不在窗口内，相对位置: ({relative_x}, {relative_y})")
             return -1, -1
 
     def click(self, x: int, y: int, button: str = 'left', delay: float = 0.1) -> bool:
@@ -275,9 +306,11 @@ class GUIController:
         :param delay: 点击间隔时间（秒）
         :return: 是否成功
         """
+        logger.debug(f"执行鼠标点击，位置: ({x}, {y}), 按钮: {button}, 延迟: {delay}")
         self.mouse_button(x, y, True, button)
         time.sleep(delay)
         self.mouse_button(x, y, False, button)
+        logger.debug("鼠标点击完成")
         return True
 
     # --------------------------------------------------------------------------------------
@@ -339,6 +372,7 @@ class MessageController(GUIController):
     def __init__(self) -> None:
         super().__init__()
         self.hwnd = self.get_foreground_hwnd()
+        logger.debug(f"MessageController初始化完成，当前窗口句柄: {self.hwnd}")
 
     def set_hwnd(self, hwnd: int) -> bool:
         """
@@ -347,9 +381,12 @@ class MessageController(GUIController):
         :param hwnd: 窗口句柄
         :return: 是否成功
         """
+        logger.debug(f"设置窗口句柄: {hwnd}")
         if not hwnd or not self.ensure_window_ready(hwnd):
+            logger.warning(f"无法设置窗口句柄: {hwnd}")
             return False
         self.hwnd = hwnd
+        logger.debug(f"窗口句柄设置成功: {hwnd}")
         return True
 
     def set_hwnd_foreground(self) -> bool:
@@ -358,8 +395,12 @@ class MessageController(GUIController):
         
         :return: 是否成功
         """
-        if not self.set_hwnd(self.get_foreground_hwnd()):
+        logger.debug("设置当前窗口句柄为前台窗口")
+        foreground_hwnd = self.get_foreground_hwnd()
+        if not self.set_hwnd(foreground_hwnd):
+            logger.warning("无法设置前台窗口句柄")
             return False
+        logger.debug(f"前台窗口句柄设置成功: {foreground_hwnd}")
         return True
 
     def mouse_button(self, x: int, y: int, down: bool, button: Literal['left', 'right', 'middle'] = 'left') -> bool:
@@ -372,7 +413,9 @@ class MessageController(GUIController):
         :param button: 鼠标按钮 'left', 'right', 'middle'
         :return: 是否成功
         """
+        logger.debug(f"发送鼠标按钮事件，位置: ({x}, {y}), 按钮: {button}, 按下: {down}")
         if not self.hwnd or not self.ensure_window_ready(self.hwnd):
+            logger.warning("窗口未就绪，无法发送鼠标按钮事件")
             return False
         
         # 获取窗口位置和大小
@@ -381,7 +424,7 @@ class MessageController(GUIController):
         
         # 确保坐标在窗口内
         if not (window_x <= x <= rect[2] and window_y <= y <= rect[3]):
-            print(f"坐标({x}, {y})不在窗口区域内")
+            logger.warning(f"坐标({x}, {y})不在窗口区域内")
             return False
         
         # 将屏幕坐标转换为窗口客户区坐标
@@ -392,13 +435,18 @@ class MessageController(GUIController):
         # 发送鼠标消息
         if button == 'left':
             win32gui.SendMessage(self.hwnd, message, win32con.MK_LBUTTON, point)
+            logger.debug("发送左键鼠标消息")
         elif button == 'right':
             win32gui.SendMessage(self.hwnd, message, win32con.MK_RBUTTON, point)
+            logger.debug("发送右键鼠标消息")
         elif button == 'middle':
             win32gui.SendMessage(self.hwnd, message, win32con.MK_MBUTTON, point)
+            logger.debug("发送中键鼠标消息")
         else:
+            logger.warning(f"不支持的鼠标按钮: {button}")
             return False
         
+        logger.debug("鼠标按钮事件发送成功")
         return True
 
     def mouse_move(self, x: int, y: int) -> bool:
@@ -409,7 +457,9 @@ class MessageController(GUIController):
         :param y: 目标位置的y坐标
         :return: 是否成功
         """
+        logger.debug(f"发送鼠标移动事件，目标位置: ({x}, {y})")
         if not self.hwnd or not self.ensure_window_ready(self.hwnd):
+            logger.warning("窗口未就绪，无法发送鼠标移动事件")
             return False
         
         # 获取窗口位置和大小
@@ -418,7 +468,7 @@ class MessageController(GUIController):
         
         # 确保坐标在窗口内
         if not (window_x <= x <= rect[2] and window_y <= y <= rect[3]):
-            print(f"坐标({x}, {y})不在窗口区域内")  
+            logger.warning(f"坐标({x}, {y})不在窗口区域内")  
             return False
         
         # 将屏幕坐标转换为窗口客户区坐标
@@ -426,6 +476,7 @@ class MessageController(GUIController):
         
         # 发送鼠标移动消息
         win32gui.SendMessage(self.hwnd, win32con.WM_MOUSEMOVE, 0, point)
+        logger.debug("鼠标移动事件发送成功")
         return True
 
     def key(self, virtual_key: int, down: bool = True) -> bool:
@@ -436,14 +487,19 @@ class MessageController(GUIController):
         :param down: 是否按下按键
         :return: 是否成功
         """
+        logger.debug(f"发送按键事件，虚拟键码: {virtual_key}, 按下: {down}")
         if not self.hwnd or not self.ensure_window_ready(self.hwnd):
+            logger.warning("窗口未就绪，无法发送按键事件")
             return False
         
         # 发送按键按下和释放消息
         if down:
             win32gui.SendMessage(self.hwnd, win32con.WM_KEYDOWN, virtual_key, 0)
+            logger.debug("发送按键按下消息")
         else:
             win32gui.SendMessage(self.hwnd, win32con.WM_KEYUP, virtual_key, 0)
+            logger.debug("发送按键释放消息")
+        logger.debug("按键事件发送成功")
         return True
 
     def type_keys(self, text: str, delay: float = 0.01) -> bool:
@@ -454,13 +510,16 @@ class MessageController(GUIController):
         :param delay: 按键间延迟（秒）
         :return: 是否成功
         """
+        logger.debug(f"发送文本输入，文本: '{text}', 延迟: {delay}")
         if not self.hwnd or not self.ensure_window_ready(self.hwnd):
+            logger.warning("窗口未就绪，无法发送文本输入")
             return False
         
         for char in text:
             win32gui.SendMessage(self.hwnd, win32con.WM_CHAR, ord(char), 0)
             time.sleep(delay)
         
+        logger.debug(f"文本输入完成，共发送 {len(text)} 个字符")
         return True
 
 
@@ -468,6 +527,7 @@ class HardwareController(GUIController):
     def __init__(self) -> None:
         super().__init__()
         self.user32 = ctypes.windll.user32
+        logger.debug("HardwareController初始化完成")
 
     def mouse_button(self, x: int, y: int, down: bool, button: Literal['left', 'right', 'middle'] = 'left') -> bool:
         """
@@ -477,30 +537,40 @@ class HardwareController(GUIController):
         :param button: 鼠标按钮 'left', 'right', 'middle'
         :return: 是否成功
         """
+        logger.debug(f"执行硬件鼠标按钮事件，位置: ({x}, {y}), 按钮: {button}, 按下: {down}")
         if x > 0 and y > 0:
+            logger.debug("移动鼠标到指定位置")
             self.mouse_move(x, y)
 
         try:
             if button == 'left':
                 if down:
                     self.user32.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+                    logger.debug("发送左键按下事件")
                 else:
                     self.user32.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+                    logger.debug("发送左键释放事件")
             elif button == 'right':
                 if down:
                     self.user32.mouse_event(win32con.MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, 0)
+                    logger.debug("发送右键按下事件")
                 else:
                     self.user32.mouse_event(win32con.MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0)
+                    logger.debug("发送右键释放事件")
             elif button == 'middle':
                 if down:
                     self.user32.mouse_event(win32con.MOUSEEVENTF_MIDDLEDOWN, 0, 0, 0, 0)
+                    logger.debug("发送中键按下事件")
                 else:
                     self.user32.mouse_event(win32con.MOUSEEVENTF_MIDDLEUP, 0, 0, 0, 0)
+                    logger.debug("发送中键释放事件")
             else:
+                logger.warning(f"不支持的鼠标按钮: {button}")
                 return False
+            logger.debug("硬件鼠标按钮事件执行成功")
             return True
         except Exception as e:
-            print(f"鼠标按下操作失败: {e}")
+            logger.error(f"鼠标按下操作失败: {e}")
             return False
 
     def mouse_move(self, x: int, y: int) -> bool:
