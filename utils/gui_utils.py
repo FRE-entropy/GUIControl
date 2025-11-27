@@ -5,6 +5,7 @@ import win32process
 import ctypes
 import time
 import psutil
+import pynput
 from typing import Tuple, Optional, Union, List, Dict, Literal
 from .logger import logger
 
@@ -623,6 +624,44 @@ class HardwareController(GUIController):
         
         return True
 
+    def wait_key_press(self, *virtual_keys: int, timeout: float = 1.0) -> bool:
+        """
+        等待指定按键或组合键按下（支持快捷键检测）
+        例如：wait_key_press(VK_LCONTROL, ord('C')) 可检测 Ctrl+C
+        
+        :param virtual_keys: 虚拟键码列表，可以是单个键或多个键（组合键）
+        :param timeout: 超时时间（秒）
+        :return: 是否成功
+        """
+        start_time = time.time()
+        # 使用更小的睡眠间隔以提高响应灵敏度
+        small_sleep = 0.01  # 10ms的小睡眠间隔
+        
+        # 如果没有提供按键，则返回False
+        if not virtual_keys:
+            return False
+            
+        while True:
+            # 检查所有键是否同时被按下
+            all_keys_pressed = True
+            for vk in virtual_keys:
+                if self.user32.GetKeyState(vk) & 0x8000 == 0:
+                    all_keys_pressed = False
+                    break
+                    
+            if all_keys_pressed:
+                return True
+            
+            # 检查是否超时
+            elapsed_time = time.time() - start_time
+            if elapsed_time >= timeout:
+                return False
+            
+            # 计算剩余时间并确保只睡眠必要的时间
+            remaining_time = timeout - elapsed_time
+            # 只睡眠较小的时间间隔或者剩余时间（取较小值）
+            time.sleep(min(small_sleep, remaining_time))
+    
 # 使用示例和测试代码
 if __name__ == "__main__":
     # 创建控制器实例

@@ -1,24 +1,21 @@
-from utils.hgr_utils import HGRUtils
-from utils.gui_utils import BackgroundController
-import win32con
+from pynput.keyboard import Key, Controller as KeyController
+from pynput.mouse import Button, Controller as MouseController
 import time
 
+keyboard = KeyController()
+mouse = MouseController()
+tqqtt
+def press_key(key, duration=0.1):
+    keyboard.press(key)
+    time.sleep(duration)
+    keyboard.release(key)
 
-# hgr_utils = HGRUtils("./data")
+def click_at(x, y):
+    # 移动鼠标并点击
+    mouse.position = (x, y)
+    time.sleep(0.1)
+    mouse.click(Button.left)
 
-# while True:
-#     hand_landmarks = hgr_utils.get_all_hand_landmarks()
-#     if hand_landmarks is not None and len(hand_landmarks) > 0:
-#         print(hand_landmarks)
-#         print(hand_landmarks[0].landmark[hgr_utils.mp_hands.HandLandmark.INDEX_FINGER_TIP])
-#         break
-# hand_landmarks_list = hgr_utils.read_all_hand_landmarks()
-# print(hand_landmarks_list)
-
-time.sleep(5)
-bc = BackgroundController()
-bc.set_control_method("hardware")
-
-while True:
-    time.sleep(1)
-    bc.press_key_foreground(ord("A"))
+# 使用示例
+press_key('w', 2.0)  # 向前移动2秒
+press_key(Key.space)  # 跳跃
