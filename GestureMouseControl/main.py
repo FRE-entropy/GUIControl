@@ -1,9 +1,10 @@
 import time
+from tkinter import N
 import traceback
 import numpy as np
 from collections import deque
 from utils.hgr_utils import HGRUtils, HandLandmark
-from utils.gui_utils import GUIController, HardwareController
+from utils.gui_utils import GUIController
 from utils.logger import logger
 
 class GestureControl:
@@ -60,11 +61,7 @@ class GestureControl:
         """初始化核心组件"""
         try:
             self.hgr_utils = HGRUtils(self.data_dir)
-            self.gui_controller = HardwareController()
-            
-            # 优化后台运行性能
-            self.gui_controller.boost_priority()
-            self.gui_controller.optimize_for_background()
+            self.gui_controller = GUIController()
         except Exception as e:
             logger.error(f"组件初始化失败: {e}")
             raise
@@ -107,7 +104,10 @@ class GestureControl:
                 frame_start_time = time.time()
                 
                 # 处理手势数据
-                if not self._process_gesture_data():
+                result = self._process_gesture_data()
+                if result is None:
+                    break
+                if not result:
                     # 即使没有手势数据，也要控制帧率
                     self._control_frame_rate(frame_start_time)
                     continue
@@ -132,6 +132,8 @@ class GestureControl:
         try:
             # 获取手势数据（添加超时保护）
             hand_landmarks_list, image = self.hgr_utils.get_all_hand_landmarks()
+            if image is None:
+                return None
             # self.hgr_utils.display_results(image)
             if len(hand_landmarks_list) == 0:
                 if not self.is_paused:
@@ -299,7 +301,7 @@ class GestureMouse:
         """暂停手势鼠标控制"""
         self.is_click = False
         self.is_dragging = False
-        self.gui_controller.mouse_button(-1, -1, False, "left")
+        self.gui_controller.mouse_button("left", False)
 
     def _calculate_mouse_position(self, tip):
         """
@@ -336,7 +338,7 @@ class GestureMouse:
 
     def _update_mouse_position(self, tip):
         """
-        更新鼠标位置（相对移动）- 优化版本
+        更新鼠标位置（相对移动）
         """
         try:
             if self.thumb_middle_finger_distance < self.CLICK_DISTANCE_THRESHOLD:
@@ -435,18 +437,18 @@ class GestureMouse:
             is_middle = self.thumb_middle_finger_distance < self.CLICK_DISTANCE_THRESHOLD
             if is_index and is_middle:
                 if not self.is_dragging:
-                    self.gui_controller.mouse_button(-1, -1, True, "left")
+                    self.gui_controller.mouse_button("left", True)
                     self.is_dragging = True
                     self.is_click = True
                     logger.info("拖拽开始")
             else:
                 if self.is_dragging:
-                    self.gui_controller.mouse_button(-1, -1, False, "left")
+                    self.gui_controller.mouse_button("left", False)
                     self.is_dragging = False
                     logger.info("拖拽释放")
             if is_index:
                 if not self.is_click and not self.is_dragging:
-                    self.gui_controller.click(-1, -1, "left")
+                    self.gui_controller.click("left")
                     self.is_click = True
                     logger.info("点击")
             else:

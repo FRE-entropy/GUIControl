@@ -6,7 +6,7 @@ import mido
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from utils.logger import Logger
-from utils.gui_utils import HardwareController
+from utils.gui_utils import GUIController
 
 mi_keys = {
     "C.": "Q",
@@ -34,7 +34,7 @@ mi_keys = {
 
 class GenshinImpactMusicPlayer:
     def __init__(self):
-        self.controller = HardwareController()
+        self.controller = GUIController()
         self.speed = 1000
         self.music_score_text = ""
         self.music_score = []
@@ -71,8 +71,8 @@ class GenshinImpactMusicPlayer:
                 msg = msg.dict()
                 if "note" not in msg.keys():
                     continue
-                if self.controller.wait_key_press(
-                    self.controller.VK_const.VK_CONTROL, ord('C'), 
+                if self.controller.wait_hotkey_press(
+                    "ctrl", "c", 
                     timeout=msg["time"] / self.speed
                     ):
                     return
@@ -80,9 +80,9 @@ class GenshinImpactMusicPlayer:
                     Logger.error(f"note {msg['note']} not in map")
                     continue
                 if msg["type"] == "note_on":
-                    self.controller.key(ord(self.map[msg["note"]]), True)
+                    self.controller.key(self.map[msg["note"]], True)
                 elif msg["type"] == "note_off":
-                    self.controller.key(ord(self.map[msg["note"]]), False)
+                    self.controller.key(self.map[msg["note"]], False)
 
 
     def read(self, file_path):
@@ -104,27 +104,7 @@ class GenshinImpactMusicPlayer:
                 continues = []
             downs = [i for i in downs.strip()]
             self.music_score.append((downs, continues))
-
-    def play_music_score(self, press_duration=0.05):
-        for downs, continues in self.music_score:
-            start = time.time()
-            if downs == "_":
-                time.sleep(self.duration)
-                continue
-            up_keys = [i for i in self.pressed_keys if i not in continues]
-            self.press_keys(up_keys, False)
-            time.sleep(press_duration)
-            self.press_keys(downs, True)
-            self.pressed_keys = continues + downs
-            end = time.time()
-            time.sleep(max(0, self.duration - (end - start)))
-
-    def press_keys(self, keys, down=True):
-        for key in keys:
-            if key not in self.pressed_keys:
-                self.controller.key(ord(key), down)
-
-
+            
 if __name__ == "__main__":
     # 检测按下某快捷键开始播放
     time.sleep(1)

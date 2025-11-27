@@ -106,7 +106,6 @@ class HGRUtils:
         
         image = self.get_camera_frame()
         if image is None:
-            logger.warning("无法获取摄像头画面，返回空结果")
             return [], None
             
         results = self.get_result(image)
