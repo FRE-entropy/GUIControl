@@ -3,7 +3,7 @@ import os
 import time
 import mido
 
-sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.append("../")
 
 from utils.logger import Logger
 from utils.gui_utils import GUIController

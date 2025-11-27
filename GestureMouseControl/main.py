@@ -1,8 +1,12 @@
 import time
-from tkinter import N
+import sys
+import os
 import traceback
 import numpy as np
 from collections import deque
+
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+
 from utils.hgr_utils import HGRUtils, HandLandmark
 from utils.gui_utils import GUIController
 from utils.logger import logger

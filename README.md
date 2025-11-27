@@ -50,11 +50,10 @@ GUIControl/
 
 ```bash
 # 使用pip安装
-cd GUIControl
-pip install -r requirements.txt
+pip install -e .
 
 # 或使用uv安装
-uv pip install -e .
+uv sync
 ```
 
 ## 工具说明
@@ -86,3 +85,8 @@ uv pip install -e .
 - 初始版本
 - 包含原神弹琴器和手势鼠标控制两个主要工具
 - 实现基础功能和共享工具模块
+
+## 联系方式
+
+如有问题或建议，请通过项目Issue页面提交反馈。
+QQ: 2655998023
