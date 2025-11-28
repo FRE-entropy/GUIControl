@@ -3,34 +3,11 @@ import os
 import time
 import mido
 
-sys.path.append("../")
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
-from utils.logger import Logger
+from utils.logger import logger
 from utils.gui_utils import GUIController
 
-mi_keys = {
-    "C.": "Q",
-    "D.": "W",
-    "E.": "E",
-    "F.": "R",
-    "G.": "T",
-    "A.": "Y",
-    "B.": "U",
-    "C": "A",
-    "D": "S",
-    "E": "D",
-    "F": "F",
-    "G": "G",
-    "A": "H",
-    "B": "J",
-    "'C": "Z",
-    "'D": "X",
-    "'E": "C",
-    "'F": "V",
-    "'G": "B",
-    "'A": "N",
-    "'B": "M",
-}
 
 class GenshinImpactMusicPlayer:
     def __init__(self):
@@ -41,43 +18,43 @@ class GenshinImpactMusicPlayer:
         self.duration = 0.1
         self.pressed_keys = []
         self.map = {
-            48: "Z",
-            50: "X",
-            52: "C",
-            53: "V",
-            55: "B",
-            57: "N",
-            59: "M",
-            60: "A",
-            62: "S",
-            64: "D",
-            65: "F",
-            67: "G",
-            69: "H",
-            71: "J",
-            72: "Q",
-            74: "W",
-            76: "E",
-            77: "R",
-            79: "T",
-            81: "Y",
-            83: "U",
+            48: "z",
+            50: "x",
+            52: "c",
+            53: "v",
+            55: "b",
+            57: "n",
+            59: "m",
+            60: "a",
+            62: "s",
+            64: "d",
+            65: "f",
+            67: "g",
+            69: "h",
+            71: "j",
+            72: "q",
+            74: "w",
+            76: "e",
+            77: "r",
+            79: "t",
+            81: "y",
+            83: "u",
         }
 
     def play_midi(self, file_path):
+        # 检测文件是否存在
+        if not os.path.exists(file_path):
+            logger.error(f"file {file_path} not exists")
+            return
         mid = mido.MidiFile(file_path)
         for track in mid.tracks:
             for msg in track:
                 msg = msg.dict()
                 if "note" not in msg.keys():
                     continue
-                if self.controller.wait_hotkey_press(
-                    "ctrl", "c", 
-                    timeout=msg["time"] / self.speed
-                    ):
-                    return
+                time.sleep(msg["time"] / self.speed)
                 if msg["note"] not in self.map.keys():
-                    Logger.error(f"note {msg['note']} not in map")
+                    logger.error(f"note {msg['note']} not in map")
                     continue
                 if msg["type"] == "note_on":
                     self.controller.key(self.map[msg["note"]], True)
@@ -110,5 +87,5 @@ if __name__ == "__main__":
     time.sleep(1)
 
     music_player = GenshinImpactMusicPlayer()
-    music_player.play_midi("./data/music/2.mid")
+    music_player.play_midi("./data/music/离月_music.midi")
     # music_player.play_music_score()

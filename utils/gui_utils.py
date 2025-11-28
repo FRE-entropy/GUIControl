@@ -83,14 +83,14 @@ class GUIController:
         使用窗口消息方法发送键盘事件
         
         :param down: 是否按下按键
-        :param key: 按键码（如 win32con.VK_A, win32con.VK_F1, win32con.VK_LEFT）
+        :param key: 按键
         :return: 是否成功
         """
         logger.debug(f"执行键盘{'按下' if down else '释放'}，按键码: {key}")
         if down:
-            pynput.keyboard.Key(key).press()
+            self.keyboard.press(key)
         else:
-            pynput.keyboard.Key(key).release()
+            self.keyboard.release(key)
         return True
 
     def type_keys(self, text: str, delay: float = 0.1) -> bool:
@@ -107,44 +107,6 @@ class GUIController:
             time.sleep(delay)
             self.key(ord(char), False)
         return True
-
-    def is_key_pressed(self, key: int) -> bool:
-        """
-        检查指定按键是否被按下
-        
-        :param key: 按键码（如 win32con.VK_A, win32con.VK_F1, win32con.VK_LEFT）
-        :return: 是否按下
-        """
-        logger.debug(f"检查按键是否按下，按键码: {key}")
-        return pynput.keyboard.Key(key).is_pressed()
-
-    def is_hotkey_pressed(self, *hotkeys: Union[int, str]) -> bool:
-        """
-        检查指定热键是否被按下（支持组合键）
-        
-        :param hotkeys: 热键组合
-        :return: 是否按下
-        """
-        logger.debug(f"检查热键是否按下，热键: {hotkeys}")
-        return all(self.is_key_pressed(key) for key in hotkeys)
-
-    def wait_hotkey_press(self, *hotkeys: Union[int, str], timeout: float = 5.0) -> bool:
-        """
-        等待指定热键被按下（支持组合键）
-        
-        :param hotkeys: 热键组合
-        :param timeout: 超时时间（秒）
-        :return: 是否成功
-        """
-        start = time.perf_counter()
-        while True:
-            if self.is_hotkey_pressed(*hotkeys):
-                logger.debug(f"热键 {hotkeys} 被按下")
-                return True
-            if time.perf_counter() - start > timeout:
-                logger.debug(f"等待热键 {hotkeys} 超时")
-                return False
-            time.sleep(0.001)  # 1ms 精确轮询
 
 # 使用示例和测试代码
 if __name__ == "__main__":
