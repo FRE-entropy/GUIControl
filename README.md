@@ -43,7 +43,7 @@ GUIControl/
 
 ### 前置条件
 
-- Python 3.7+
+- Python 3.12+
 - 依赖管理：支持pip或uv包管理器
 
 ### 全局安装
@@ -55,6 +55,17 @@ pip install -e .
 # 或使用uv安装
 uv sync
 ```
+
+### 打包说明
+
+项目支持使用cx_Freeze进行打包，生成可执行文件：
+
+```bash
+# 生成可执行文件
+python setup.py build
+```
+
+生成的可执行文件将位于 `build/exe.win-amd64-3.12/` 目录下。
 
 ## 工具说明
 

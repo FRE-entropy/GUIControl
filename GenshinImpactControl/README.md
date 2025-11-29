@@ -38,22 +38,35 @@
 
 ## 使用方法
 
-### 播放MIDI文件
+### GUI界面使用
 
-1. 将MIDI文件放在项目的`data/music/`目录下
-
-2. 修改`main.py`中的文件路径指向你的MIDI文件：
-   ```python
-   music_player.play_midi("./data/music/你的文件.mid")
-   ```
-
-3. 运行程序：
+1. 运行程序：
    ```bash
    cd GenshinImpactControl
    python main.py
    ```
 
-4. 程序将自动开始播放MIDI文件中的音乐，通过模拟按键操作在游戏中弹奏。
+2. 在弹出的GUI界面中：
+   - 点击"浏览"按钮选择MIDI文件
+   - 选择要播放的音轨（从1开始）
+   - 调整BPM（播放速度）
+   - 点击"播放"按钮开始播放
+
+3. 程序将在2秒后开始播放，期间请切换到原神游戏窗口
+
+4. 播放过程中，程序会自动模拟键盘按键，在游戏中弹奏音乐
+
+### 命令行使用
+
+```bash
+# 播放指定MIDI文件
+python main.py "path/to/your/file.mid" --bpm 120 --track 1
+```
+
+参数说明：
+- `file_path`: MIDI文件路径（必填）
+- `--bpm`: 播放速度，默认120
+- `--track`: 播放的音轨编号，默认1
 
 ## 键盘映射说明
 

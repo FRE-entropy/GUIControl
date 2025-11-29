@@ -425,7 +425,7 @@ class MusicPlayerGUI:
     def browse_file(self):
         """浏览并选择MIDI文件"""
         file_path = filedialog.askopenfilename(
-            filetypes=[("MIDI文件", "*.mid")],
+            filetypes=[("MIDI文件", "*.mid *.midi")],
             initialdir=os.path.join(os.path.dirname(__file__), "data", "music")
         )
         if file_path:
