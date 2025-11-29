@@ -41,10 +41,10 @@ class GenshinImpactMusicPlayer:
             81: "y",
             83: "u",
         }
-        self.min_time = 0.03
         self.bpm = 120
         self.tempo = 60 / self.bpm
         self.ticks_per_beat = 0
+        self.min_release_time = 0.03
 
 
     def read_midi(self, file_path):
@@ -154,25 +154,33 @@ class GenshinImpactMusicPlayer:
         """
         优化音符时间，解决同一个键快速松开按下导致听不出松开效果的问题
         """
-        min_release_time = 0.03
-        min_release_ticks = min_release_time * self.ticks_per_beat / self.tempo
-        print(min_release_ticks)
+        min_release_ticks = self.min_release_time * self.ticks_per_beat / self.tempo
         track = mid_list[track_num]
         
-        for i in range(len(track)):
+        # 遍历音轨中的所有消息，记录每个音符的状态
+        i = 0
+        while i < len(track):
             msg = track[i]
-            if msg["time"] > 0:
-                if msg["time"] < min_release_ticks and (msg["type"] == "note_on" and msg["velocity"] != 0):
+            # 只处理有时间间隔的note_on消息（velocity不为0）
+            if msg["time"] > 0 and msg["type"] == "note_on" and msg["velocity"] != 0:
+                if msg["time"] < min_release_ticks:
                     ticks_diff = min_release_ticks - msg["time"]
-                    track[i]["time"] += ticks_diff
-                    # 向前查找最近的一个有时间间隔的消息，减少其ticks数以保持总时长不变
-                    for j in range(i - 1, 0, -1):
-                        if "note" in track[j] and track[j]["time"] > 0 and (track[j]["type"] == "note_off" or track[j]["velocity"] == 0):
-                            track[j]["time"] -= ticks_diff
-                            break
+                    # 查找前一个对应的note_off消息（或velocity为0的note_on）
+                    # 从i-1开始向前查找，直到找到对应的note_off或到达音轨开头
+                    for j in range(i - 1, -1, -1):
+                        prev_msg = track[j]
+                        # 检查是否是同一音符的note_off消息
+                        if (prev_msg["type"] == "note_off" or (prev_msg["type"] == "note_on" and prev_msg["velocity"] == 0)) and "note" in prev_msg and prev_msg["note"] == msg["note"]:
+                            # 检查前一个消息是否有时间间隔可以调整
+                            if prev_msg["time"] > ticks_diff + min_release_ticks:
+                                # 增加当前note_on的时间间隔
+                                track[j + 1]["time"] += ticks_diff
+                                # 减少前一个note_off的时间间隔，保持总时长不变
+                                track[j]["time"] -= ticks_diff
+                                break
+            i += 1
 
         mid_list[track_num] = track
-
         return mid_list
     
     def adjust_midi(self, mid_list, track_num=1):
@@ -256,7 +264,7 @@ class GenshinImpactMusicPlayer:
         mid_list = self.to_list(mid)
         mid_list = self.adjust_midi(mid_list, track_num)
         
-        # 延时3秒，让用户有时间切换到目标窗口
+        # 延时1秒，让用户有时间切换到目标窗口
         logger.info("程序将在1秒后开始播放，请切换到目标窗口...")
         time.sleep(1)
         
@@ -267,9 +275,9 @@ class GenshinImpactMusicPlayer:
         else:
             logger.warning("未检测到聚焦窗口，将在当前窗口播放")
         
-        # 跟踪每个音符的状态和时间
+        # 跟踪每个音符的状态
         note_states = {}
-        
+        start_time = time.time()
         # 播放指定音轨
         if track_num < len(mid_list):
             logger.info(f"开始播放第 {track_num} 条音轨")
@@ -282,17 +290,19 @@ class GenshinImpactMusicPlayer:
                 delete_time = msg["time"] / self.ticks_per_beat * self.tempo
                 # 确保睡眠时间为非负数
                 delete_time = max(delete_time, 0)
-
-                time.sleep(delete_time)
+                delete_time = delete_time - (time.time() - start_time)
+                time.sleep(max(delete_time, 0))
+                start_time = time.time()
                 
-                # 检查窗口是否切换
-                current_window = gw.getActiveWindow()
-                if target_window and current_window != target_window:
-                    logger.info(f"窗口已切换，从 {target_window.title} 切换到 {current_window.title}，终止播放")
-                    # 释放所有按键
-                    for key in self.map.values():
-                        self.controller.key(key, False)
-                    return
+                # 检查窗口是否切换（每10个消息检查一次，减少开销）
+                if i % 10 == 0:
+                    current_window = gw.getActiveWindow()
+                    if target_window and current_window != target_window:
+                        logger.info(f"窗口已切换，从 {target_window.title} 切换到 {current_window.title}，终止播放")
+                        # 释放所有按键
+                        for key in self.map.values():
+                            self.controller.key(key, False)
+                        return
 
                 if msg["note"] not in self.map.keys():
                     logger.error(f"note {msg['note']} not in map")
@@ -301,12 +311,13 @@ class GenshinImpactMusicPlayer:
                 note = msg["note"]
                 key = self.map[note]
                 
+                # 处理音符消息
                 if msg["type"] == "note_on" and msg["velocity"] > 0:
-                    logger.info(f"press {key}")
+                    logger.debug(f"press {key}")
                     self.controller.key(key, True)
                     note_states[note] = {"type": "on", "time": time.time()}
                 elif msg["type"] == "note_off" or msg["velocity"] == 0:
-                    logger.info(f"release {key}")
+                    logger.debug(f"release {key}")
                     self.controller.key(key, False)
                     note_states[note] = {"type": "off", "time": time.time()}
         else:
@@ -341,7 +352,7 @@ if __name__ == "__main__":
         music_player.play_midi(args.file_path, args.bpm, args.track)
     else:
         # 没有参数则直接调用默认文件和速度
-        music_player.play_midi("data/music/周杰伦歌曲Midi合集/最伟大的作品.mid", 120, 1)
+        # music_player.play_midi("data/music/周杰伦歌曲Midi合集/最伟大的作品.mid", 120, 1)
         # music_player.play_midi("./data/music/青花瓷(C调).mid", 120)
-        # music_player.play_midi("./data/music/flower_dance.mid", 120)
+        music_player.play_midi("./data/music/flower_dance.mid", 120)
         # music_player.play_midi("data/music/2.mid", 120, 1)
