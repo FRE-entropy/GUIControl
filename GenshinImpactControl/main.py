@@ -75,10 +75,18 @@ class GenshinImpactMusicPlayer:
             logger.info("mid_list为空，返回None")
             return None
         
-        # 只使用第一条音轨的音符进行统计
+        # 将从1开始的音轨编号转换为从0开始的索引
+        actual_track_num = track_num - 1
+        
+        # 检查actual_track_num是否在有效范围内
+        if actual_track_num < 0 or actual_track_num >= len(mid_list):
+            logger.error(f"音轨编号 {track_num} 超出范围，总共有 {len(mid_list)} 条音轨")
+            return None
+        
+        # 只使用指定音轨的音符进行统计
         all_notes = []
-        if mid_list and mid_list[track_num]:
-            first_track = mid_list[track_num]
+        if mid_list[actual_track_num]:
+            first_track = mid_list[actual_track_num]
             logger.info(f"使用第{track_num}条轨道进行统计，事件数量: {len(first_track)}")
             
             for msg in first_track:
@@ -157,8 +165,16 @@ class GenshinImpactMusicPlayer:
         """
         优化音符时间，解决同一个键快速松开按下导致听不出松开效果的问题
         """
+        # 将从1开始的音轨编号转换为从0开始的索引
+        actual_track_num = track_num - 1
+        
+        # 检查actual_track_num是否在有效范围内
+        if actual_track_num < 0 or actual_track_num >= len(mid_list):
+            logger.error(f"音轨编号 {track_num} 超出范围，总共有 {len(mid_list)} 条音轨")
+            return mid_list
+        
         min_release_ticks = self.min_release_time * self.ticks_per_beat / self.tempo
-        track = mid_list[track_num]
+        track = mid_list[actual_track_num]
         
         # 遍历音轨中的所有消息，记录每个音符的状态
         i = 0
@@ -183,7 +199,7 @@ class GenshinImpactMusicPlayer:
                                 break
             i += 1
 
-        mid_list[track_num] = track
+        mid_list[actual_track_num] = track
         return mid_list
     
     def adjust_midi(self, mid_list, track_num=1):
@@ -281,10 +297,13 @@ class GenshinImpactMusicPlayer:
         # 跟踪每个音符的状态
         note_states = {}
         start_time = time.time()
+        # 将从1开始的音轨编号转换为从0开始的索引
+        actual_track_num = track_num - 1
+        
         # 播放指定音轨
-        if track_num < len(mid_list):
+        if actual_track_num < len(mid_list):
             logger.info(f"开始播放第 {track_num} 条音轨")
-            track = mid_list[track_num]
+            track = mid_list[actual_track_num]
             for i in range(len(track)):
                 msg = track[i]
                 if "note" not in msg.keys():
