@@ -9,13 +9,14 @@ from loguru import logger
 # 配置loguru日志
 logger.remove()  # 移除默认的处理器
 
-# 添加控制台输出（INFO级别及以上）
-logger.add(
-    sys.stderr,
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-    level="INFO",
-    colorize=True
-)
+# 添加控制台输出（INFO级别及以上），仅当sys.stderr可用时
+if sys.stderr is not None:
+    logger.add(
+        sys.stderr,
+        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        level="INFO",
+        colorize=True
+    )
 
 # 添加文件输出（DEBUG级别及以上，每天轮转，保留7天）
 logger.add(
