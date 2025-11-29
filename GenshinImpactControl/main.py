@@ -4,6 +4,9 @@ import time
 import mido
 import argparse
 import pygetwindow as gw
+import tkinter as tk
+from tkinter import filedialog, ttk
+import threading
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -264,9 +267,9 @@ class GenshinImpactMusicPlayer:
         mid_list = self.to_list(mid)
         mid_list = self.adjust_midi(mid_list, track_num)
         
-        # 延时1秒，让用户有时间切换到目标窗口
-        logger.info("程序将在1秒后开始播放，请切换到目标窗口...")
-        time.sleep(1)
+        # 延时2秒，让用户有时间切换到目标窗口
+        logger.info("程序将在2秒后开始播放，请切换到目标窗口...")
+        time.sleep(2)
         
         # 获取当前聚焦窗口
         target_window = gw.getActiveWindow()
@@ -331,12 +334,144 @@ class GenshinImpactMusicPlayer:
             # 忽略在__del__方法中可能出现的异常，因为此时某些资源可能已经被释放
             pass
             
-if __name__ == "__main__":
-
-    # 创建音乐播放器实例
-    music_player = GenshinImpactMusicPlayer()
+class MusicPlayerGUI:
+    def __init__(self, master):
+        self.master = master
+        master.title("原神音乐播放器")
+        master.geometry("500x300")
+        master.resizable(False, False)
+        
+        # 创建音乐播放器实例
+        self.music_player = GenshinImpactMusicPlayer()
+        self.is_playing = False
+        self.current_file = ""
+        self.available_tracks = [1]  # 默认音轨1
+        
+        # 设置样式
+        style = ttk.Style()
+        style.configure("TButton", padding=6, relief="flat", background="#ccc")
+        style.configure("TLabel", padding=6, font=("Arial", 10))
+        style.configure("TEntry", padding=6)
+        style.configure("TCombobox", padding=6)
+        
+        # 创建主框架
+        main_frame = ttk.Frame(master, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 文件选择部分
+        file_frame = ttk.Frame(main_frame)
+        file_frame.pack(fill=tk.X, pady=10)
+        
+        ttk.Label(file_frame, text="MIDI文件:", width=10).pack(side=tk.LEFT, padx=5)
+        
+        self.file_entry = ttk.Entry(file_frame)
+        self.file_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        
+        ttk.Button(file_frame, text="浏览", command=self.browse_file).pack(side=tk.LEFT, padx=5)
+        
+        # 音轨选择部分
+        track_frame = ttk.Frame(main_frame)
+        track_frame.pack(fill=tk.X, pady=10)
+        
+        ttk.Label(track_frame, text="音轨:", width=10).pack(side=tk.LEFT, padx=5)
+        
+        self.track_var = tk.StringVar(value="1")
+        self.track_combobox = ttk.Combobox(track_frame, textvariable=self.track_var, values=self.available_tracks, state="readonly")
+        self.track_combobox.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        
+        # BPM选择部分
+        bpm_frame = ttk.Frame(main_frame)
+        bpm_frame.pack(fill=tk.X, pady=10)
+        
+        ttk.Label(bpm_frame, text="BPM:", width=10).pack(side=tk.LEFT, padx=5)
+        
+        self.bpm_var = tk.StringVar(value="120")
+        self.bpm_entry = ttk.Entry(bpm_frame, textvariable=self.bpm_var)
+        self.bpm_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        
+        # 播放按钮部分
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=20)
+        
+        self.play_button = ttk.Button(button_frame, text="播放", command=self.play_music, style="TButton")
+        self.play_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        
+        ttk.Button(button_frame, text="退出", command=master.quit).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        
+        # 状态标签
+        self.status_var = tk.StringVar(value="就绪")
+        status_label = ttk.Label(main_frame, textvariable=self.status_var, foreground="blue")
+        status_label.pack(pady=10)
     
-    # 如果命令行有参数，则使用参数调用
+    def browse_file(self):
+        """浏览并选择MIDI文件"""
+        file_path = filedialog.askopenfilename(
+            filetypes=[("MIDI文件", "*.mid")],
+            initialdir=os.path.join(os.path.dirname(__file__), "data", "music")
+        )
+        if file_path:
+            self.current_file = file_path
+            self.file_entry.delete(0, tk.END)
+            self.file_entry.insert(0, file_path)
+            self.update_available_tracks(file_path)
+            self.status_var.set("已选择文件")
+    
+    def update_available_tracks(self, file_path):
+        """更新可用音轨列表"""
+        try:
+            mid = mido.MidiFile(file_path)
+            # 音轨编号从1开始，因为代码中默认使用track_num=1
+            self.available_tracks = list(range(1, len(mid.tracks) + 1))
+            self.track_combobox['values'] = self.available_tracks
+            self.track_var.set(str(1))  # 默认选择第一条音轨
+            self.status_var.set(f"文件包含 {len(mid.tracks)} 条音轨")
+        except Exception as e:
+            logger.error(f"读取MIDI文件失败: {e}")
+            self.status_var.set(f"读取文件失败: {e}")
+    
+    def play_music(self):
+        """播放音乐，在新线程中执行"""
+        if self.is_playing:
+            return
+        
+        file_path = self.current_file
+        if not file_path:
+            self.status_var.set("请先选择MIDI文件")
+            return
+        
+        try:
+            track_num = int(self.track_var.get())
+            bpm = int(self.bpm_var.get())
+            
+            if bpm <= 0:
+                self.status_var.set("BPM必须大于0")
+                return
+            
+            self.is_playing = True
+            self.play_button.config(text="播放中...", state="disabled")
+            self.status_var.set("正在准备播放...")
+            
+            # 在新线程中播放音乐，避免阻塞GUI
+            threading.Thread(target=self._play_music_thread, args=(file_path, bpm, track_num), daemon=True).start()
+        except ValueError:
+            self.status_var.set("请输入有效的音轨和BPM")
+    
+    def _play_music_thread(self, file_path, bpm, track_num):
+        """播放音乐的线程函数"""
+        try:
+            self.status_var.set(f"正在播放: {os.path.basename(file_path)}")
+            self.music_player.play_midi(file_path, bpm, track_num)
+            self.status_var.set("播放完成")
+        except Exception as e:
+            logger.error(f"播放失败: {e}")
+            self.status_var.set(f"播放失败: {e}")
+        finally:
+            self.is_playing = False
+            self.master.after(0, lambda: self.play_button.config(text="播放", state="normal"))
+
+
+if __name__ == "__main__":
+    # 如果有命令行参数，则使用命令行模式
     if len(sys.argv) > 1:
         # 创建命令行参数解析器
         parser = argparse.ArgumentParser(description="播放MIDI文件")
@@ -349,10 +484,10 @@ if __name__ == "__main__":
         # 解析命令行参数
         args = parser.parse_args()
         # 播放MIDI文件
+        music_player = GenshinImpactMusicPlayer()
         music_player.play_midi(args.file_path, args.bpm, args.track)
     else:
-        # 没有参数则直接调用默认文件和速度
-        # music_player.play_midi("data/music/周杰伦歌曲Midi合集/最伟大的作品.mid", 120, 1)
-        # music_player.play_midi("./data/music/青花瓷(C调).mid", 120)
-        music_player.play_midi("./data/music/flower_dance.mid", 120)
-        # music_player.play_midi("data/music/2.mid", 120, 1)
+        # 没有参数则启动GUI模式
+        root = tk.Tk()
+        app = MusicPlayerGUI(root)
+        root.mainloop()
