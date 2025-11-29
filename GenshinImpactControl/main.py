@@ -2,6 +2,7 @@ import sys
 import os
 import time
 import mido
+import argparse
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -40,7 +41,7 @@ class GenshinImpactMusicPlayer:
             83: "u",
         }
         self.min_time = 0.03
-        self.bpm = 240
+        self.bpm = 120
         self.tempo = 60 / self.bpm
 
 
@@ -50,35 +51,173 @@ class GenshinImpactMusicPlayer:
             return None
         return mido.MidiFile(file_path)
 
-    def mode_recognition(self, midi):
-        if midi is None:
-            return None
+    def to_list(self, mid):
+        track_list = []
+        for track in mid.tracks:
+            track_list.append([])
+            for msg in track:
+                track_list[-1].append(msg.dict())
+        return track_list
 
-        # 获取midi中所有音组成的音阶
+    def mode_recognition(self, mid_list, track_num=0):
+        """
+        识别MIDI文件的调式，只识别大调小调，处理少量调外音
+        返回值：-1表示小调，C大调为0，D大调为1，以此类推
+        """
+        logger.info("开始识别调式")
         
-    def play_midi(self, file_path):
+        if not mid_list:
+            logger.info("mid_list为空，返回None")
+            return None
+        
+        # 只使用第一条音轨的音符进行统计
+        all_notes = []
+        if mid_list and mid_list[track_num]:
+            first_track = mid_list[track_num]
+            logger.info(f"使用第{track_num}条轨道进行统计，事件数量: {len(first_track)}")
+            
+            for msg in first_track:
+                if "note" in msg and msg["type"] == "note_on":
+                    all_notes.append(msg["note"])
+        
+        logger.info(f"提取到的音符数量: {len(all_notes)}")
+        
+        if not all_notes:
+            logger.info("没有提取到音符，返回None")
+            return None
+        
+        # 统计每个音级的出现频率
+        pitch_class_counts = {}
+        total_notes = 0
+        for note in all_notes:
+            pitch_class = note % 12  # 0=C, 1=C#, ..., 11=B
+            if pitch_class in pitch_class_counts:
+                pitch_class_counts[pitch_class] += 1
+            else:
+                pitch_class_counts[pitch_class] = 1
+            total_notes += 1
+        
+        # 大调的音级模式（全全半全全全半）
+        major_scale = [0, 2, 4, 5, 7, 9, 11]
+        # 小调的音级模式（全半全全半全全）
+        minor_scale = [0, 2, 3, 5, 7, 8, 10]
+        
+        # 计算每个可能的调式的匹配度
+        best_score = 0
+        best_key = None
+        is_minor = False
+        
+        # 测试所有可能的大调（12个）和小调（12个）
+        for root in range(12):
+            # 计算大调匹配度：只统计调内音的出现次数，忽略调外音
+            major_score = 0
+            for pitch_class, count in pitch_class_counts.items():
+                if (pitch_class - root) % 12 in major_scale:
+                    major_score += count
+            
+            # 计算小调匹配度：只统计调内音的出现次数，忽略调外音
+            minor_score = 0
+            for pitch_class, count in pitch_class_counts.items():
+                if (pitch_class - root) % 12 in minor_scale:
+                    minor_score += count
+            
+            # 增加大调的权重，因为大调通常更常见，且算法容易误判
+            major_score *= 1.1
+            
+            # 更新最佳匹配
+            if major_score > best_score:
+                best_score = major_score
+                best_key = root
+                is_minor = False
+            if minor_score > best_score:
+                best_score = minor_score
+                best_key = root
+                is_minor = True
+        
+        # 返回结果：-1表示小调，大调返回对应的数值
+        if is_minor:
+            logger.info(f"识别到调式: 小调 (根音: {best_key})")
+            return -1
+        else:
+            # 大调返回对应的数值，C大调为0，D大调为1，以此类推
+            # 只考虑自然大调，按照C, D, E, F, G, A, B的顺序
+            natural_major_keys = [0, 2, 4, 5, 7, 9, 11]  # C, D, E, F, G, A, B
+            if best_key in natural_major_keys:
+                key_index = natural_major_keys.index(best_key)
+                logger.info(f"识别到调式: {['C', 'D', 'E', 'F', 'G', 'A', 'B'][key_index]}大调 (根音: {best_key})")
+                return key_index
+            else:
+                logger.info(f"识别到调式: 未知大调 (根音: {best_key})")
+                return None 
+
+    def adjust_midi(self, mid_list):
+        mode = self.mode_recognition(mid_list, 1)
+        logger.info(f"最终识别结果: {'小调' if mode == -1 else f'{["C", "D", "E", "F", "G", "A", "B"][mode]}大调' if mode is not None else '未知调式'}")
+        
+        # 如果没有识别到调式，直接返回
+        if mode is None:
+            return mid_list
+        
+        # 计算从当前调式到C大调的半音差
+        # 大调：C=0, D=1, E=2, F=3, G=4, A=5, B=6
+        natural_major_keys = [0, 2, 4, 5, 7, 9, 11]  # C, D, E, F, G, A, B对应的半音值
+        if mode != -1:  # 大调
+            current_root = natural_major_keys[mode]
+            semitone_diff = -current_root  # 转换到C大调需要调整的半音数
+        else:  # 小调
+            # 小调暂时不处理，直接返回
+            return mid_list
+        
+        logger.info(f"当前调式根音: {current_root}, 转换到C大调需要调整: {semitone_diff}个半音")
+        
+        # 调整所有音符
+        adjusted_mid_list = []
+        for track in mid_list:
+            adjusted_track = []
+            for msg in track:
+                adjusted_msg = msg.copy()
+                if "note" in adjusted_msg:
+                    original_note = adjusted_msg["note"]
+                    # 调整半音
+                    adjusted_note = original_note + semitone_diff
+                    
+                    # 确保音符落在map的音域内
+                    # map包含的音符范围：48-83
+                    min_map_note = min(self.map.keys())
+                    max_map_note = max(self.map.keys())
+                    
+                    # 如果调整后的音符不在map范围内，进行八度调整
+                    while adjusted_note < min_map_note:
+                        adjusted_note += 12
+                    while adjusted_note > max_map_note:
+                        adjusted_note -= 12
+                    
+                    adjusted_msg["note"] = adjusted_note
+                    logger.debug(f"音符调整: {original_note} -> {adjusted_note}")
+                adjusted_track.append(adjusted_msg)
+            adjusted_mid_list.append(adjusted_track)
+        
+        logger.info("MIDI调式调整完成")
+        return adjusted_mid_list
+        
+    def play_midi(self, file_path, bpm=120):
+        self.bpm = bpm
+        self.tempo = 60 / self.bpm
         # 检测文件是否存在
         mid = self.read_midi(file_path)
         if mid is None:
             return
-
-        for track in mid.tracks:
+        mid_list = self.to_list(mid)
+        mid_list = self.adjust_midi(mid_list)
+        for track in mid_list:
             for i in range(len(track)):
-                msg = track[i].dict()
-                print(msg)
+                msg = track[i]
                 if "note" not in msg.keys():
                     continue
                 
-                for j in range(i + 1, len(track)):
-                    next_msg_time = track[j + 1].dict()["time"]
-                    if next_msg_time > 0:
-                        break
-                
                 delete_time = msg["time"] / mid.ticks_per_beat * self.tempo
-                if self.min_time < delete_time:
-                    time.sleep(delete_time - (self.min_time if next_msg_time / mid.ticks_per_beat * self.tempo < self.min_time else 0))
-                elif 0 < msg["time"]:
-                    time.sleep(delete_time + self.min_time)
+
+                time.sleep(delete_time)
 
                 if msg["note"] not in self.map.keys():
                     logger.error(f"note {msg['note']} not in map")
@@ -90,36 +229,34 @@ class GenshinImpactMusicPlayer:
                     logger.info(f"release {self.map[msg['note']]}")
                     self.controller.key(self.map[msg["note"]], False)
 
-
-    def read(self, file_path):
-        with open(file_path, "r") as f:
-            music_score_text = f.read()
-
-        messages, music_score_text = music_score_text.split("\n", 1)
-
-        self.duration = float(messages)
-
-        music_score_list = music_score_text.split(",")
-        self.music_score = []
-        for note in music_score_list:
-            if ":" in note:
-                downs, continues = note.strip(":")
-                continues = [i for i in continues.strip()]
-            else:
-                downs = note.strip()
-                continues = []
-            downs = [i for i in downs.strip()]
-            self.music_score.append((downs, continues))
-
     def __del__(self):
-        for key in self.map.values():
-            self.controller.key(key, False)
+        try:
+            for key in self.map.values():
+                self.controller.key(key, False)
+        except Exception as e:
+            # 忽略在__del__方法中可能出现的异常，因为此时某些资源可能已经被释放
+            pass
             
 if __name__ == "__main__":
-    # 检测按下某快捷键开始播放
-    time.sleep(1)
 
+    # 创建音乐播放器实例
     music_player = GenshinImpactMusicPlayer()
-    # music_player.play_midi("./data/music/2.mid")
-    music_player.play_midi("./data/music/离月_music.midi")
+    
+    # 如果命令行有参数，则使用参数调用
+    if len(sys.argv) > 1:
+        # 创建命令行参数解析器
+        parser = argparse.ArgumentParser(description="播放MIDI文件")
+        # 添加文件路径参数（必填）
+        parser.add_argument("file_path", help="MIDI文件路径")
+        # 添加bpm参数（可选，默认120）
+        parser.add_argument("--bpm", type=int, default=120, help="播放速度（默认120）")
+        # 解析命令行参数
+        args = parser.parse_args()
+        # 播放MIDI文件
+        music_player.play_midi(args.file_path, args.bpm)
+    else:
+        # 没有参数则直接调用默认文件和速度
+        music_player.play_midi("data/music/周杰伦歌曲Midi合集/稻香.mid", 120)
+    # music_player.play_midi("./data/music/青花瓷(C调).mid", 120)
+    # music_player.play_midi("./data/music/flower_dance.mid", 120)
     # music_player.play_music_score()
