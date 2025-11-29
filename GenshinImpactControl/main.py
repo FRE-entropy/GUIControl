@@ -44,6 +44,7 @@ class GenshinImpactMusicPlayer:
         self.min_time = 0.03
         self.bpm = 120
         self.tempo = 60 / self.bpm
+        self.ticks_per_beat = 0
 
 
     def read_midi(self, file_path):
@@ -60,7 +61,7 @@ class GenshinImpactMusicPlayer:
                 track_list[-1].append(msg.dict())
         return track_list
 
-    def mode_recognition(self, mid_list, track_num=0):
+    def mode_recognition(self, mid_list, track_num=1):
         """
         识别MIDI文件的调式，只识别大调小调，处理少量调外音
         返回值：-1表示小调，C大调为0，D大调为1，以此类推
@@ -149,25 +150,32 @@ class GenshinImpactMusicPlayer:
             # 返回根音值，用于后续转换
             return best_key 
 
-    def optimize_note_timing(self, mid_list):
+    def optimize_note_timing(self, mid_list, track_num=1):
         """
         优化音符时间，解决同一个键快速松开按下导致听不出松开效果的问题
-        检测连续的note_off和note_on消息，提前处理note_off并调整后续消息时间
         """
-        optimized_mid_list = []
+        min_release_time = 0.03
+        min_release_ticks = min_release_time * self.ticks_per_beat / self.tempo
+        print(min_release_ticks)
+        track = mid_list[track_num]
         
-        # 最小松开时间间隔（秒），小于这个值的话会被优化
-        min_release_time = 0.05
-        
-        for track in mid_list:
-            # 重写优化逻辑，直接在play_midi中处理
-            # 这里返回原始轨道，实际优化在play_midi中进行
-            optimized_mid_list.append(track)
-        
-        logger.info("音符时间优化完成")
-        return optimized_mid_list
+        for i in range(len(track)):
+            msg = track[i]
+            if msg["time"] > 0:
+                if msg["time"] < min_release_ticks and (msg["type"] == "note_on" and msg["velocity"] != 0):
+                    ticks_diff = min_release_ticks - msg["time"]
+                    track[i]["time"] += ticks_diff
+                    # 向前查找最近的一个有时间间隔的消息，减少其ticks数以保持总时长不变
+                    for j in range(i - 1, 0, -1):
+                        if "note" in track[j] and track[j]["time"] > 0 and (track[j]["type"] == "note_off" or track[j]["velocity"] == 0):
+                            track[j]["time"] -= ticks_diff
+                            break
+
+        mid_list[track_num] = track
+
+        return mid_list
     
-    def adjust_midi(self, mid_list, track_num=0):
+    def adjust_midi(self, mid_list, track_num=1):
         mode = self.mode_recognition(mid_list, track_num)
         # 使用12个大调名称列表，支持所有大调
         major_key_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
@@ -232,18 +240,19 @@ class GenshinImpactMusicPlayer:
             adjusted_mid_list.append(adjusted_track)
         
         # 优化音符时间，解决同一个键快速松开按下导致听不出松开效果的问题
-        optimized_mid_list = self.optimize_note_timing(adjusted_mid_list)
+        optimized_mid_list = self.optimize_note_timing(adjusted_mid_list, track_num)
         
         logger.info("MIDI调式调整和时间优化完成")
         return optimized_mid_list
         
-    def play_midi(self, file_path, bpm=120, track_num=0):
+    def play_midi(self, file_path, bpm=120, track_num=1):
         self.bpm = bpm
         self.tempo = 60 / self.bpm
         # 检测文件是否存在
         mid = self.read_midi(file_path)
         if mid is None:
             return
+        self.ticks_per_beat = mid.ticks_per_beat
         mid_list = self.to_list(mid)
         mid_list = self.adjust_midi(mid_list, track_num)
         
@@ -258,9 +267,6 @@ class GenshinImpactMusicPlayer:
         else:
             logger.warning("未检测到聚焦窗口，将在当前窗口播放")
         
-        # 最小松开时间间隔（秒），小于这个值的话会被优化
-        min_release_time = 0.03
-        
         # 跟踪每个音符的状态和时间
         note_states = {}
         
@@ -273,7 +279,7 @@ class GenshinImpactMusicPlayer:
                 if "note" not in msg.keys():
                     continue
                 
-                delete_time = msg["time"] / mid.ticks_per_beat * self.tempo
+                delete_time = msg["time"] / self.ticks_per_beat * self.tempo
                 # 确保睡眠时间为非负数
                 delete_time = max(delete_time, 0)
 
@@ -296,20 +302,6 @@ class GenshinImpactMusicPlayer:
                 key = self.map[note]
                 
                 if msg["type"] == "note_on" and msg["velocity"] > 0:
-                    # 检查是否有最近的note_off消息
-                    if note in note_states and note_states[note]["type"] == "off":
-                        off_time = note_states[note]["time"]
-                        current_time = time.time()
-                        
-                        # 计算note_off和note_on之间的时间间隔
-                        time_diff = current_time - off_time
-                        
-                        # 如果时间间隔太短，添加一个小的延迟
-                        if time_diff < min_release_time:
-                            delay = min_release_time - time_diff
-                            logger.debug(f"添加延迟 {delay:.3f} 秒，确保松开效果清晰")
-                            time.sleep(delay)
-                    
                     logger.info(f"press {key}")
                     self.controller.key(key, True)
                     note_states[note] = {"type": "on", "time": time.time()}
@@ -342,7 +334,7 @@ if __name__ == "__main__":
         # 添加bpm参数（可选，默认120）
         parser.add_argument("--bpm", type=int, default=120, help="播放速度（默认120）")
         # 添加track参数（可选，默认0）
-        parser.add_argument("--track", type=int, default=0, help="用于调式识别的音轨编号（默认0）")
+        parser.add_argument("--track", type=int, default=1, help="用于调式识别的音轨编号（默认0）")
         # 解析命令行参数
         args = parser.parse_args()
         # 播放MIDI文件
@@ -352,4 +344,4 @@ if __name__ == "__main__":
         music_player.play_midi("data/music/周杰伦歌曲Midi合集/最伟大的作品.mid", 120, 1)
         # music_player.play_midi("./data/music/青花瓷(C调).mid", 120)
         # music_player.play_midi("./data/music/flower_dance.mid", 120)
-        # music_player.play_midi("data/music/2.mid")
+        # music_player.play_midi("data/music/2.mid", 120, 1)
