@@ -47,7 +47,7 @@ class GenshinImpactMusicPlayer:
         self.bpm = 120
         self.tempo = 60 / self.bpm
         self.ticks_per_beat = 0
-        self.min_release_time = 0.03
+        self.min_release_time = 0.05
 
 
     def read_midi(self, file_path):
@@ -181,7 +181,7 @@ class GenshinImpactMusicPlayer:
         while i < len(track):
             msg = track[i]
             # 只处理有时间间隔的note_on消息（velocity不为0）
-            if msg["time"] > 0 and msg["type"] == "note_on" and msg["velocity"] != 0:
+            if msg["type"] == "note_on" and msg["velocity"] != 0:
                 if msg["time"] < min_release_ticks:
                     ticks_diff = min_release_ticks - msg["time"]
                     # 查找前一个对应的note_off消息（或velocity为0的note_on）
