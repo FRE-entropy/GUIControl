@@ -47,7 +47,7 @@ class GenshinImpactMusicPlayer:
         self.bpm = 120
         self.tempo = 60 / self.bpm
         self.ticks_per_beat = 0
-        self.min_release_time = 0.05
+        self.min_release_time = 0.03
 
 
     def read_midi(self, file_path):
